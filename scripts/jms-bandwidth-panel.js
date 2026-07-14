@@ -6,12 +6,17 @@
  * Modified by Hugo Lee, 2026.
  */
 
-const DEFAULT_TITLE = "JMS Bandwidth";
-const args = parseArguments(typeof $argument === "undefined" ? "" : $argument);
+const TITLE = "JMS Bandwidth";
+const API_URL = "https://justmysocks6.net/members/getbwcounter.php";
+const HTTP_TIMEOUT = 8;
+const BYTES_PER_GB = 1000 ** 3;
+const args = parseArguments(
+    typeof $argument === "undefined" ? "" : $argument,
+);
 
 main().catch((error) => {
     finish({
-        title: panelTitle(),
+        title: TITLE,
         content: `Error: ${messageOf(error)}`,
         style: "error",
         icon: "exclamationmark.triangle.fill",
@@ -20,19 +25,15 @@ main().catch((error) => {
 });
 
 async function main() {
-    const apiUrl = apiUrlFromArgs();
-    if (!apiUrl || apiUrl === "XXXXXX") {
+    const service = arg("service");
+    const id = arg("id");
+    if (isPlaceholder(service) || isPlaceholder(id)) {
         throw new Error("missing service or id");
     }
-
-    const timeout = numberArg(["timeout"], 8);
-    const unit = arg(["unit"], "GB").toUpperCase() === "GIB" ? "GiB" : "GB";
-    const divisor = unit === "GiB" ? 1024 ** 3 : 1000 ** 3;
-
-    const response = await httpGet(apiUrl, {
-        timeout,
-        headers: { Accept: "application/json" },
-    });
+    const apiUrl =
+        `${API_URL}?service=${encodeURIComponent(service)}` +
+        `&id=${encodeURIComponent(id)}`;
+    const response = await httpGet(apiUrl);
 
     if (!response.ok)
         throw new Error(`HTTP ${response.status || response.statusCode}`);
@@ -66,8 +67,9 @@ async function main() {
         data.bw_reset_day_of_month || data.reset_day || data.resetDay;
 
     const lines = [
-        `Used: ${formatBytes(usedBytes, divisor)} / ${formatBytes(limitBytes, divisor)} ${unit} (${usedPercent.toFixed(2)}%)`,
-        `Left: ${formatBytes(leftBytes, divisor)} ${unit} (${leftPercent.toFixed(2)}%)`,
+        `Used: ${formatBytes(usedBytes)} / ${formatBytes(limitBytes)} GB ` +
+            `(${usedPercent.toFixed(2)}%)`,
+        `Left: ${formatBytes(leftBytes)} GB (${leftPercent.toFixed(2)}%)`,
         `${bar(usedPercent)}`,
     ];
 
@@ -75,7 +77,7 @@ async function main() {
     lines.push(`Updated: ${timestamp()}`);
 
     finish({
-        title: panelTitle(),
+        title: TITLE,
         content: lines.join("\n"),
         style: state.style,
         icon: state.icon,
@@ -97,14 +99,13 @@ function finishNative(payload) {
     if (typeof $done === "function") return $done(payload);
 }
 
-function httpGet(url, { headers, timeout, policy } = {}) {
+function httpGet(url) {
     const request = {
         url,
-        headers,
-        timeout,
+        headers: { Accept: "application/json" },
+        timeout: HTTP_TIMEOUT,
         "auto-redirect": true,
     };
-    if (policy) request.policy = policy;
 
     return new Promise((resolve, reject) => {
         $httpClient.get(request, (error, response = {}, body = "") => {
@@ -123,85 +124,10 @@ function httpGet(url, { headers, timeout, policy } = {}) {
     });
 }
 
-function apiUrlFromArgs() {
-    const raw = arg(["api_url", "jms_api_url", "url", "api"], "");
-    if (raw && !isPlaceholder(raw)) return raw;
-
-    const encoded = arg(["api_url_b64", "jms_api_url_b64", "url_b64"], "");
-    if (encoded && !isPlaceholder(encoded)) {
-        try {
-            return decodeBase64(encoded);
-        } catch {
-            throw new Error("bad api_url_b64");
-        }
-    }
-
-    const service = arg(["service", "service_id"], "");
-    const id = arg(["id", "uuid"], "");
-    if (isPlaceholder(service) || isPlaceholder(id)) return "";
-
-    const base = bandwidthApiBase(
-        arg(["base_url", "host"], "justmysocks6.net"),
-    );
-    return `${base}?service=${encodeURIComponent(service)}&id=${encodeURIComponent(id)}`;
-}
-
-function panelTitle() {
-    return arg(["title"], DEFAULT_TITLE);
-}
-
-function bandwidthApiBase(value) {
-    let base = String(value || "justmysocks6.net").trim();
-    if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
-    base = base.replace(/\/+$/, "");
-    if (/\/getbwcounter\.php$/i.test(base)) return base;
-    return `${base}/members/getbwcounter.php`;
-}
-
 function isPlaceholder(value) {
     return ["", "-", "none", "null", "undefined"].includes(
         String(value).trim().toLowerCase(),
     );
-}
-
-function decodeBase64(value) {
-    let normalized = String(value)
-        .trim()
-        .replace(/\s/g, "+")
-        .replace(/-/g, "+")
-        .replace(/_/g, "/");
-    while (normalized.length % 4) normalized += "=";
-    try {
-        if (typeof atob === "function") return atob(normalized);
-    } catch {
-        return decodeBase64Manually(normalized);
-    }
-    return decodeBase64Manually(normalized);
-}
-
-function decodeBase64Manually(value) {
-    const alphabet =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bits = 0;
-    let buffer = 0;
-    let output = "";
-
-    for (const char of value.replace(/=+$/, "")) {
-        const index = alphabet.indexOf(char);
-        if (index < 0) throw new Error("bad base64");
-        buffer = (buffer << 6) | index;
-        bits += 6;
-        if (bits >= 8) {
-            bits -= 8;
-            output += String.fromCharCode((buffer >> bits) & 0xff);
-        }
-    }
-
-    try {
-        return decodeURIComponent(escape(output));
-    } catch {
-        return output;
-    }
 }
 
 function parseArguments(value) {
@@ -232,19 +158,9 @@ function decodeArgument(value) {
     }
 }
 
-function arg(names, fallback = "") {
-    for (const name of names) {
-        const value = getPath(args, name);
-        if (value !== undefined && value !== null && String(value).length > 0) {
-            return String(value);
-        }
-    }
-    return fallback;
-}
-
-function numberArg(names, fallback) {
-    const value = Number(arg(names, fallback));
-    return Number.isFinite(value) ? value : fallback;
+function arg(name) {
+    const value = args[name];
+    return value === undefined || value === null ? "" : String(value);
 }
 
 function numberFrom(object, names) {
@@ -269,8 +185,8 @@ function parseJson(body) {
     return JSON.parse(body);
 }
 
-function formatBytes(bytes, divisor) {
-    return (bytes / divisor).toFixed(3);
+function formatBytes(bytes) {
+    return (bytes / BYTES_PER_GB).toFixed(3);
 }
 
 function stateForLeft(leftPercent) {

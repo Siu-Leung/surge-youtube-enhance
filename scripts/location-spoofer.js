@@ -14,7 +14,7 @@
         longitude: -122.00902,
         horizontalAccuracy: 39,
         verticalAccuracy: 1000,
-        altitude: 530,
+        altitude: 330,
         unknownValue4: 3,
         motionActivityType: 63,
         motionActivityConfidence: 467,
@@ -949,14 +949,7 @@
     }
 
     function enrichArgsFromPluginStore(args) {
-        var keys = [
-            "enabled",
-            "latitude",
-            "longitude",
-            "altitude",
-            "address",
-            "debug",
-        ];
+        var keys = ["enabled", "latitude", "longitude", "address"];
         var i;
         args = args || {};
         for (i = 0; i < keys.length; i += 1) {
@@ -1245,18 +1238,13 @@
         var cfg = {};
         var scalarKeys = [
             "enabled",
-            "mode",
             "latitude",
             "longitude",
             "address",
-            "horizontalAccuracy",
-            "verticalAccuracy",
-            "altitude",
             "unknownValue4",
             "motionActivityType",
             "motionActivityConfidence",
             "failOpen",
-            "debug",
             "dumpRaw",
             "dumpHeaders",
             "prepareHeaders",
@@ -1355,7 +1343,6 @@
 
     function runMaintenanceCron() {
         var args = readScriptArguments();
-        var debug = parseBoolean(args.debug, false);
         var pending = 0;
 
         function maybeDone() {
@@ -1368,7 +1355,7 @@
         var address = String(args.address || "").trim();
         if (address) {
             pending += 1;
-            geocodeAddress(address, debug, function () {
+            geocodeAddress(address, false, function () {
                 maybeDone();
             });
         }
@@ -2008,12 +1995,6 @@
         }
 
         if (hasRequest && !hasResponse) {
-            var prepArgs = readScriptArguments();
-            if (parseBoolean(prepArgs.debug, false)) {
-                console.log(
-                    "Location spoofer prepare -> Accept-Encoding: identity",
-                );
-            }
             donePreparedRequestPassThrough();
             return;
         }

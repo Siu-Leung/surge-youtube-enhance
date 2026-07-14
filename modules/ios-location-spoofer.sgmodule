@@ -1,9 +1,9 @@
 #!name=iOS Location Spoofer
 #!desc=Replace Apple location-server coordinates with module values.
-#!arguments=latitude:35.708516, longitude:139.785174, altitude:330, horizontalAccuracy:39, verticalAccuracy:1000, debug:false
+#!arguments=latitude:35.708516, longitude:139.785174
 
 [Script]
-iOS Location Spoofer = type=http-response,pattern=^https?:\/\/(?:gs-loc(?:-cn)?\.apple\.com|bluedot\.is\.autonavi\.com(?:\.gds\.alibabadns\.com)?)\/clls\/wloc(?:\?.*)?$,requires-body=true,binary-body-mode=true,max-size=1048576,timeout=10,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer.js,argument=mode=response&latitude={{{latitude}}}&longitude={{{longitude}}}&horizontalAccuracy={{{horizontalAccuracy}}}&verticalAccuracy={{{verticalAccuracy}}}&altitude={{{altitude}}}&debug={{{debug}}}
+iOS Location Spoofer = type=http-response,pattern=^https?:\/\/(?:gs-loc(?:-cn)?\.apple\.com|bluedot\.is\.autonavi\.com(?:\.gds\.alibabadns\.com)?)\/clls\/wloc(?:\?.*)?$,requires-body=true,binary-body-mode=true,max-size=1048576,timeout=10,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer.js,argument=latitude={{{latitude}}}&longitude={{{longitude}}}
 
 [MITM]
-hostname = %APPEND% gs-loc.apple.com, gs-loc-cn.apple.com, bluedot.is.autonavi.com, bluedot.is.autonavi.com.gds.alibabadns.com
+hostname = %APPEND% gs-loc.apple.com,gs-loc-cn.apple.com,bluedot.is.autonavi.com,bluedot.is.autonavi.com.gds.alibabadns.com
