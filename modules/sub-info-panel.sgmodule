@@ -1,0 +1,10 @@
+#!name=Sub Info Panel
+#!desc=Show subscription traffic and expiration from Subscription-Userinfo.
+#!category=Panels
+#!arguments=interval:3600, name:-, url, reset-day:-, expire:auto, policy:DIRECT, unit:GB, timeout:10, warmup:1
+
+[Script]
+sub-info-panel = type=generic,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/sub-info-panel.js,argument=name={{{name}}}&reset_day={{{reset-day}}}&expire={{{expire}}}&policy={{{policy}}}&unit={{{unit}}}&timeout={{{timeout}}}&warmup={{{warmup}}}&url={{{url}}},timeout={{{timeout}}},engine=webview
+
+[Panel]
+SubInfo = title="Sub Info",content="Loading...",style=info,script-name=sub-info-panel,update-interval={{{interval}}}
