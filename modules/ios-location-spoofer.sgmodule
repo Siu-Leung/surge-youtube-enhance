@@ -1,9 +1,12 @@
 #!name=iOS Location Spoofer
-#!desc=Replace Apple location-server coordinates with module values.
-#!arguments=latitude:35.708516, longitude:139.785174
+#!desc=Replace Apple network-location coordinates. Native Surge Shortcut stores Apple Maps selections locally.
+#!system=ios
+#!arguments=latitude=35.708516&longitude=139.785174&accuracy=39
+#!arguments-desc=MODULE\nlatitude/longitude: WGS84 coordinates; set either to - for passthrough.\naccuracy: integer 0…100000 metres.\n\nSHORTCUT API\nAdd Shortcuts action: Surge → Run Script → iOS Location Settings. Set Parameter to Shortcut Input.\nInput: Apple Maps URL | latitude,longitude | clear or - | status | reset\nJSON: {"url":"Apple Maps URL","accuracy":39,"coordinateSystem":"auto"}\ncoordinateSystem: auto | gcj02 | wgs84\nSaved Shortcut coordinates override module values. clear enables passthrough. reset restores module values. Changes apply on next Apple WLOC response.
 
 [Script]
-iOS Location Spoofer = type=http-response,pattern=^https?:\/\/(?:gs-loc(?:-cn)?\.apple\.com|bluedot\.is\.autonavi\.com(?:\.gds\.alibabadns\.com)?)\/clls\/wloc(?:\?.*)?$,requires-body=true,binary-body-mode=true,max-size=1048576,timeout=10,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer.js,argument=latitude={{{latitude}}}&longitude={{{longitude}}}
+iOS Location Spoofer = type=http-response,pattern=^https?:\/\/gs-loc(?:-cn)?\.apple\.com\/clls\/wloc(?:\?.*)?$,requires-body=true,binary-body-mode=true,max-size=262144,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer.js,argument=latitude=%latitude%&longitude=%longitude%&accuracy=%accuracy%
+iOS Location Settings = type=generic,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer-settings.js
 
 [MITM]
-hostname = %APPEND% gs-loc.apple.com,gs-loc-cn.apple.com,bluedot.is.autonavi.com,bluedot.is.autonavi.com.gds.alibabadns.com
+hostname = %APPEND% gs-loc.apple.com,gs-loc-cn.apple.com
