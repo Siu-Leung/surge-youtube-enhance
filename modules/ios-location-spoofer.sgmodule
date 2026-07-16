@@ -1,17 +1,17 @@
 #!name=iOS Location Spoofer
-#!desc=Replace Apple network-location coordinates on-device or through Surge Mac gateway. Native Surge Shortcut stores map selections locally.
+#!desc=Replace Apple network-location coordinates on iOS or through Surge Mac gateway. HTTPS Shortcut control stores map selections locally.
 #!requirement=SYSTEM = 'iOS' || SYSTEM = 'macOS'
 #!arguments=latitude:35.708516, longitude:139.785174, accuracy:39
 # Module arguments:
 # latitude / longitude: WGS84 coordinates. Set either to - for passthrough.
 # accuracy: integer 0…100000 metres.
 #
-# Shortcut API:
-# Add action: Surge → Run Script → iOS Location Settings
-# Parameter: Shortcut Input
-# Input: Apple Maps/Amap URL | latitude,longitude | clear or - | status | reset
-# JSON: {"url":"Map URL","accuracy":39,"coordinateSystem":"auto"}
-# Command JSON: {"action":"clear|status|reset"}
+# Shortcut (iOS standalone or Mac gateway):
+# Add action: Get Contents of URL
+# URL: https://location-spoofer.test/set
+# Method: POST; Request Body: JSON; input: Shortcut Input
+# Optional JSON fields: accuracy, coordinateSystem
+# Commands: GET https://location-spoofer.test/status|clear|reset
 # coordinateSystem: auto | gcj02 | wgs84
 # Amap and coordinate-less links use wloc-spoofer.wloc.workers.dev for parsing.
 # Saved Shortcut values override module arguments. clear = passthrough.
@@ -19,7 +19,10 @@
 
 [Script]
 iOS Location Spoofer = type=http-response,pattern=^https?:\/\/gs-loc(?:-cn)?\.apple\.com\/clls\/wloc(?:\?.*)?$,requires-body=true,binary-body-mode=true,max-size=262144,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer.js,argument=latitude={{{latitude}}}&longitude={{{longitude}}}&accuracy={{{accuracy}}}
-iOS Location Settings = type=generic,timeout=15,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer-settings.js
+Location Settings = type=http-request,pattern=^https:\/\/location-spoofer\.test\/(?:set|status|clear|reset)(?:\?.*)?$,requires-body=true,max-size=16384,timeout=15,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer-settings.js
+
+[Host]
+location-spoofer.test = 192.0.2.1
 
 [MITM]
-hostname = %APPEND% gs-loc.apple.com,gs-loc-cn.apple.com
+hostname = %APPEND% gs-loc.apple.com,gs-loc-cn.apple.com,location-spoofer.test

@@ -1,9 +1,9 @@
 /**
  * SPDX-License-Identifier: AGPL-3.0-only
  *
- * Native Surge Shortcut settings for iOS Location Spoofer.
- * Input arrives through $intent.parameter. Amap and coordinate-less map links
- * use the external wloc parser retained by this module.
+ * HTTPS Shortcut control for iOS Location Spoofer. The same request route
+ * works in Surge iOS and in Surge Mac gateway mode. Amap and coordinate-less
+ * map links use the external parser.
  */
 (function () {
     "use strict";
@@ -11,6 +11,8 @@
     var STORE_KEY = "ios_location_spoofer_settings";
     var EXTERNAL_PARSE_URL =
         "https://wloc-spoofer.wloc.workers.dev/api/parse";
+    var SHORTCUT_CONTROL_PATTERN =
+        /^https:\/\/location-spoofer\.test\/(set|status|clear|reset)(?:[?#]|$)/i;
     var DEFAULT_ACCURACY = 39;
     var MAX_ACCURACY = 100000;
 
@@ -465,9 +467,30 @@
                     return { action: action };
                 }
             }
-            return input.url != null
-                ? buildMapUrlOperation(input)
-                : buildSaveOperation(input);
+            var sharedInput = input.url != null ? input.url : input.input;
+            if (Array.isArray(sharedInput)) {
+                sharedInput = sharedInput.length ? sharedInput[0] : "";
+            }
+            if (sharedInput != null) {
+                if (
+                    normalizeAppleMapsUrl(sharedInput) ||
+                    normalizeAmapUrl(sharedInput)
+                ) {
+                    return buildMapUrlOperation({
+                        url: sharedInput,
+                        accuracy: input.accuracy,
+                        coordinateSystem: input.coordinateSystem,
+                    });
+                }
+                var sharedCoordinate = parseCoordinatePair(sharedInput);
+                if (sharedCoordinate) {
+                    sharedCoordinate.accuracy = input.accuracy;
+                    sharedCoordinate.coordinateSystem = input.coordinateSystem;
+                    return buildSaveOperation(sharedCoordinate);
+                }
+                return buildIntentOperation(sharedInput);
+            }
+            return buildSaveOperation(input);
         }
 
         var text = String(input).trim();
@@ -499,6 +522,83 @@
             return buildSaveOperation(coordinate);
         }
         throw new Error("unsupported Shortcut input");
+    }
+
+    function requestQueryParameter(url, name) {
+        var queryIndex = String(url || "").indexOf("?");
+        if (queryIndex < 0) {
+            return null;
+        }
+        var query = String(url).slice(queryIndex + 1).split("#")[0];
+        var pairs = query.split("&");
+        for (var i = 0; i < pairs.length; i += 1) {
+            var pair = pairs[i];
+            var separator = pair.indexOf("=");
+            var key = separator >= 0 ? pair.slice(0, separator) : pair;
+            if (safeDecode(key) === name) {
+                return safeDecode(
+                    separator >= 0 ? pair.slice(separator + 1) : "",
+                );
+            }
+        }
+        return null;
+    }
+
+    function parseShortcutBody(body) {
+        var text = String(body == null ? "" : body).trim();
+        if (!text) {
+            return null;
+        }
+        if (
+            text.charAt(0) === "{" ||
+            text.charAt(0) === "[" ||
+            text.charAt(0) === '"'
+        ) {
+            try {
+                return JSON.parse(text);
+            } catch (err) {
+                throw new Error("invalid Shortcut JSON");
+            }
+        }
+        return text;
+    }
+
+    function shortcutInput() {
+        if (typeof $request === "undefined" || !$request) {
+            throw new Error("missing Shortcut request");
+        }
+        var match = String($request.url || "").match(
+            SHORTCUT_CONTROL_PATTERN,
+        );
+        if (!match) {
+            throw new Error("invalid Shortcut control URL");
+        }
+        var route = match[1].toLowerCase();
+        if (route !== "set") {
+            return { action: route };
+        }
+
+        var bodyInput = parseShortcutBody($request.body);
+        if (bodyInput != null) {
+            return bodyInput;
+        }
+
+        var url = String($request.url || "");
+        var sharedInput = requestQueryParameter(url, "input");
+        if (sharedInput == null) {
+            sharedInput = requestQueryParameter(url, "url");
+        }
+        if (sharedInput == null || sharedInput === "") {
+            throw new Error("missing Shortcut input");
+        }
+        return {
+            input: sharedInput,
+            accuracy: requestQueryParameter(url, "accuracy"),
+            coordinateSystem: requestQueryParameter(
+                url,
+                "coordinateSystem",
+            ),
+        };
     }
 
     function persistentStoreAvailable() {
@@ -720,28 +820,28 @@
 
     function finish(result) {
         var message = resultMessage(result);
-        if (
-            typeof $notification !== "undefined" &&
-            $notification &&
-            typeof $notification.post === "function"
-        ) {
-            try {
-                $notification.post(
-                    "iOS Location Spoofer",
-                    result.success ? result.action : "error",
-                    message,
-                );
-            } catch (err) {}
+        var responseResult = {};
+        var key;
+        for (key in result) {
+            if (Object.prototype.hasOwnProperty.call(result, key)) {
+                responseResult[key] = result[key];
+            }
         }
-        $done(result);
+        responseResult.message = message;
+        $done({
+            response: {
+                status: 200,
+                headers: {
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Cache-Control": "no-store",
+                },
+                body: JSON.stringify(responseResult),
+            },
+        });
     }
 
     try {
-        var parameter =
-            typeof $intent !== "undefined" && $intent
-                ? $intent.parameter
-                : null;
-        var operation = buildIntentOperation(parameter);
+        var operation = buildIntentOperation(shortcutInput());
         if (operation.action === "resolve-map-url") {
             resolveMapUrl(operation);
         } else {
