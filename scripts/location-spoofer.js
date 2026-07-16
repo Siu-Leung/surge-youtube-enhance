@@ -90,47 +90,6 @@
         }
     }
 
-    function binaryStringToBytes(value) {
-        var out = new Uint8Array(value.length);
-        for (var i = 0; i < value.length; i += 1) {
-            out[i] = value.charCodeAt(i) & 0xff;
-        }
-        return out;
-    }
-
-    function bodyToBytes(body) {
-        if (body == null) {
-            return null;
-        }
-        if (body instanceof Uint8Array) {
-            return body;
-        }
-        if (typeof ArrayBuffer !== "undefined" && body instanceof ArrayBuffer) {
-            return new Uint8Array(body);
-        }
-        if (typeof body === "string") {
-            return binaryStringToBytes(body);
-        }
-        if (typeof body === "object" && typeof body.length === "number") {
-            return new Uint8Array(body);
-        }
-        return null;
-    }
-
-    function messageBodyToBytes(message) {
-        if (!message) {
-            return null;
-        }
-        var candidates = [message.bodyBytes, message.body];
-        for (var i = 0; i < candidates.length; i += 1) {
-            var bytes = bodyToBytes(candidates[i]);
-            if (bytes && bytes.length > 0) {
-                return bytes;
-            }
-        }
-        return null;
-    }
-
     function readUInt16BE(bytes, offset) {
         if (offset + 2 > bytes.length) {
             throw new Error("uint16 out of range");
@@ -344,15 +303,15 @@
         return Math.round(Number(value) * 100000000);
     }
 
-    function isBlankValue(value) {
+    function isNumericInput(value) {
         return (
-            value == null ||
-            (typeof value === "string" && value.trim() === "")
+            typeof value === "number" ||
+            (typeof value === "string" && value.trim() !== "")
         );
     }
 
     function normalizeHorizontalAccuracy(value) {
-        if (isBlankValue(value)) {
+        if (!isNumericInput(value)) {
             throw new Error("invalid horizontal accuracy");
         }
         var accuracy = Number(value);
@@ -371,36 +330,12 @@
         return accuracy;
     }
 
-    function parseBoolean(value, defaultValue) {
-        if (value === true || value === false) {
-            return value;
-        }
-        if (typeof value === "string") {
-            var normalized = value.trim().toLowerCase();
-            if (
-                normalized === "true" ||
-                normalized === "1" ||
-                normalized === "yes" ||
-                normalized === "on"
-            ) {
-                return true;
-            }
-            if (
-                normalized === "false" ||
-                normalized === "0" ||
-                normalized === "no" ||
-                normalized === "off"
-            ) {
-                return false;
-            }
-        }
-        return defaultValue;
-    }
-
     function normalizeConfig(input) {
         var cfg = mergeConfig(DEFAULT_CONFIG, input);
-        cfg.enabled = parseBoolean(cfg.enabled, true);
-        if (isBlankValue(cfg.latitude) || isBlankValue(cfg.longitude)) {
+        if (
+            !isNumericInput(cfg.latitude) ||
+            !isNumericInput(cfg.longitude)
+        ) {
             throw new Error("invalid coordinates");
         }
         cfg.latitude = Number(cfg.latitude);
@@ -515,11 +450,11 @@
             if (field.fieldNumber === 2 && field.wireType === 2) {
                 locationFieldFound = true;
                 var patched = patchLocation(field.valueBytes, config);
-                parts.push(
-                    makeLengthDelimitedField(2, patched),
-                );
                 if (!bytesEqual(patched, field.valueBytes)) {
+                    parts.push(makeLengthDelimitedField(2, patched));
                     patchedLocation = true;
+                } else {
+                    parts.push(field.raw);
                 }
             } else {
                 parts.push(field.raw);
@@ -553,11 +488,11 @@
             if (field.fieldNumber === 5 && field.wireType === 2) {
                 locationFieldFound = true;
                 var patched = patchLocation(field.valueBytes, config);
-                parts.push(
-                    makeLengthDelimitedField(5, patched),
-                );
                 if (!bytesEqual(patched, field.valueBytes)) {
+                    parts.push(makeLengthDelimitedField(5, patched));
                     patchedLocation = true;
+                } else {
+                    parts.push(field.raw);
                 }
             } else {
                 parts.push(field.raw);
@@ -590,9 +525,13 @@
                     field.valueBytes,
                     config,
                 );
-                parts.push(makeLengthDelimitedField(2, wifiResult.payload));
                 if (wifiResult.patched) {
+                    parts.push(
+                        makeLengthDelimitedField(2, wifiResult.payload),
+                    );
                     wifiCount += 1;
+                } else {
+                    parts.push(field.raw);
                 }
             } else if (
                 isCellResponseField(field.fieldNumber) &&
@@ -602,14 +541,16 @@
                     field.valueBytes,
                     config,
                 );
-                parts.push(
-                    makeLengthDelimitedField(
-                        field.fieldNumber,
-                        cellResult.payload,
-                    ),
-                );
                 if (cellResult.patched) {
+                    parts.push(
+                        makeLengthDelimitedField(
+                            field.fieldNumber,
+                            cellResult.payload,
+                        ),
+                    );
                     cellCount += 1;
+                } else {
+                    parts.push(field.raw);
                 }
             } else {
                 parts.push(field.raw);
@@ -667,42 +608,6 @@
             arpc.payload,
             arpc.suffix || bytesFromArray([]),
         ]);
-    }
-
-    function extractPrefixedAppleWLocPayload(responseBytes) {
-        if (!responseBytes || responseBytes.length < 10) {
-            return null;
-        }
-        if (responseBytes[0] !== 0x00 || responseBytes[1] !== 0x01) {
-            return null;
-        }
-        if (responseBytes[6] !== 0x00 || responseBytes[7] !== 0x00) {
-            return null;
-        }
-
-        var payloadLength = readUInt16BE(responseBytes, 8);
-        var payloadOffset = 10;
-        if (
-            payloadLength <= 0 ||
-            payloadOffset + payloadLength > responseBytes.length
-        ) {
-            return null;
-        }
-
-        var payload = responseBytes.slice(
-            payloadOffset,
-            payloadOffset + payloadLength,
-        );
-        if (!looksLikeAppleWLocPayload(payload)) {
-            return null;
-        }
-
-        return {
-            kind: "synthetic",
-            payload: payload,
-            prefix: responseBytes.slice(0, 8),
-            suffix: responseBytes.slice(payloadOffset + payloadLength),
-        };
     }
 
     function extractLengthPrefixedAt(responseBytes, offset) {
@@ -781,11 +686,6 @@
     function extractAppleWLocPayload(responseBytes) {
         if (!responseBytes || responseBytes.length < 2) {
             throw new Error("Apple WLoc response too short");
-        }
-
-        var prefixed = extractPrefixedAppleWLocPayload(responseBytes);
-        if (prefixed) {
-            return prefixed;
         }
 
         try {
@@ -915,13 +815,6 @@
                 patched.payload,
                 extraction.suffix,
             ]);
-        } else if (extraction.kind === "synthetic") {
-            response = concatBytes([
-                extraction.prefix,
-                writeUInt16BE(patched.payload.length),
-                patched.payload,
-                extraction.suffix,
-            ]);
         } else if (extraction.kind === "length-offset") {
             response = concatBytes([
                 extraction.header,
@@ -954,7 +847,7 @@
             return result;
         }
 
-        var pairs = argument.split(/[&;]/);
+        var pairs = argument.split("&");
         for (var j = 0; j < pairs.length; j += 1) {
             var part = pairs[j];
             if (!part) {
@@ -973,23 +866,10 @@
     }
 
     function readScriptArguments() {
-        var out = {};
-        if (typeof $argument !== "undefined" && $argument != null) {
-            if (typeof $argument === "string") {
-                out = parseArgumentString($argument);
-            } else if (typeof $argument === "object") {
-                var key;
-                for (key in $argument) {
-                    if (Object.prototype.hasOwnProperty.call($argument, key)) {
-                        var value = $argument[key];
-                        out[key] = value == null ? "" : String(value);
-                    }
-                }
-            } else {
-                out = parseArgumentString(String($argument));
-            }
+        if (typeof $argument === "undefined" || $argument == null) {
+            return {};
         }
-        return out;
+        return parseArgumentString(String($argument));
     }
 
     function readPersistentSettings() {
@@ -1009,7 +889,7 @@
     }
 
     function isValidStoredCoordinate(latitude, longitude) {
-        if (isBlankValue(latitude) || isBlankValue(longitude)) {
+        if (!isNumericInput(latitude) || !isNumericInput(longitude)) {
             return false;
         }
         latitude = Number(latitude);
@@ -1058,12 +938,7 @@
 
     function configFromArgs(args) {
         var cfg = {};
-        var scalarKeys = [
-            "enabled",
-            "latitude",
-            "longitude",
-            "horizontalAccuracy",
-        ];
+        var scalarKeys = ["latitude", "longitude"];
 
         for (var i = 0; i < scalarKeys.length; i += 1) {
             var key = scalarKeys[i];
@@ -1081,13 +956,6 @@
         args = args || {};
         var cfg = mergeConfig(DEFAULT_CONFIG, configFromArgs(args));
 
-        if (
-            isDisabledCoordinateValue(args.latitude) ||
-            isDisabledCoordinateValue(args.longitude)
-        ) {
-            cfg.enabled = false;
-            return cfg;
-        }
         if (storedSettings && storedSettings.enabled === false) {
             cfg.enabled = false;
             return cfg;
@@ -1110,13 +978,19 @@
             }
             return cfg;
         }
+        if (
+            isDisabledCoordinateValue(args.latitude) ||
+            isDisabledCoordinateValue(args.longitude)
+        ) {
+            cfg.enabled = false;
+        }
         return cfg;
     }
 
     function loadRuntimeConfig() {
         var args = readScriptArguments();
         var cfg = resolveRuntimeConfig(args, readPersistentSettings());
-        return normalizeConfig(cfg);
+        return cfg.enabled ? normalizeConfig(cfg) : cfg;
     }
 
     function headersAfterRewrite(sourceHeaders) {
@@ -1163,16 +1037,17 @@
     function prepareResponseBody() {
         var respHeaders = ($response && $response.headers) || {};
         var contentEncoding = headerValue(respHeaders, "Content-Encoding");
-        var bytes = messageBodyToBytes($response);
+        var bytes =
+            $response.body instanceof Uint8Array ? $response.body : null;
         if (!bytes || bytes.length < 2) {
             return null;
         }
 
         var encoding = isGzipBytes(bytes) ? "gzip" : contentEncoding;
         if (encoding) {
-            var decoded = bodyToBytes(
-                decompressBody(bytes, encoding),
-            );
+            var decompressed = decompressBody(bytes, encoding);
+            var decoded =
+                decompressed instanceof Uint8Array ? decompressed : null;
             if (
                 decoded &&
                 decoded.length > 2 &&
@@ -1243,33 +1118,13 @@
             var responseBody = prepareResponseBody();
             continueResponseRewrite(config, responseBody);
         } catch (err) {
-            console.log("Location spoofer fail-open: " + err.message);
+            console.log(
+                "Location spoofer fail-open: " +
+                    (err && err.message ? err.message : String(err)),
+            );
             donePassThrough();
         }
     }
 
-    if (typeof module !== "undefined" && module.exports) {
-        module.exports = {
-            DEFAULT_CONFIG: DEFAULT_CONFIG,
-            APPLE_WLOC_MARKER: APPLE_WLOC_MARKER,
-            concatBytes: concatBytes,
-            bytesEqual: bytesEqual,
-            writeUInt16BE: writeUInt16BE,
-            encodeVarintUnsigned: encodeVarintUnsigned,
-            encodeVarintSignedInt64: encodeVarintSignedInt64,
-            decodeVarint: decodeVarint,
-            makeVarintField: makeVarintField,
-            makeLengthDelimitedField: makeLengthDelimitedField,
-            parseFields: parseFields,
-            normalizeHorizontalAccuracy: normalizeHorizontalAccuracy,
-            normalizeConfig: normalizeConfig,
-            patchAppleWLocPayload: patchAppleWLocPayload,
-            parseArpc: parseArpc,
-            extractAppleWLocPayload: extractAppleWLocPayload,
-            spoofAppleResponse: spoofAppleResponse,
-            resolveRuntimeConfig: resolveRuntimeConfig,
-        };
-    } else {
-        runSurge();
-    }
+    runSurge();
 })();

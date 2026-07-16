@@ -2,15 +2,17 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  *
  * Native Surge Shortcut settings for iOS Location Spoofer.
- * Input arrives through $intent.parameter. No network request is used.
+ * Input arrives through $intent.parameter. Amap and coordinate-less map links
+ * use the external wloc parser retained by this module.
  */
 (function () {
     "use strict";
 
     var STORE_KEY = "ios_location_spoofer_settings";
+    var EXTERNAL_PARSE_URL =
+        "https://wloc-spoofer.wloc.workers.dev/api/parse";
     var DEFAULT_ACCURACY = 39;
     var MAX_ACCURACY = 100000;
-    var SETTINGS_SCHEMA_VERSION = 1;
 
     // Fast mainland approximation adapted from the Nokia Maps rectangle method.
     // Rectangle format: [west, south, east, north].
@@ -77,18 +79,44 @@
         return match ? parseCoordinatePair(safeDecode(match[1])) : null;
     }
 
-    function normalizeAppleMapsUrl(input) {
+    function normalizeMapUrl(input, pattern) {
         var text = String(input == null ? "" : input).trim();
-        var pattern = /^(?:https?:\/\/)?maps\.apple\.(?:com|cn)(?:[/:?#]|$)/i;
+        var urlMatch = text.match(/https?:\/\/[^\s'"<>]+/i);
+        if (urlMatch && pattern.test(urlMatch[0])) {
+            return urlMatch[0];
+        }
         if (pattern.test(text)) {
-            return text;
+            return /^https?:\/\//i.test(text) ? text : "https://" + text;
         }
         try {
             var decoded = decodeURIComponent(text);
-            return pattern.test(decoded) ? decoded : null;
+            urlMatch = decoded.match(/https?:\/\/[^\s'"<>]+/i);
+            if (urlMatch && pattern.test(urlMatch[0])) {
+                return urlMatch[0];
+            }
+            if (!pattern.test(decoded)) {
+                return null;
+            }
+            return /^https?:\/\//i.test(decoded)
+                ? decoded
+                : "https://" + decoded;
         } catch (err) {
             return null;
         }
+    }
+
+    function normalizeAppleMapsUrl(input) {
+        return normalizeMapUrl(
+            input,
+            /^(?:https?:\/\/)?maps\.apple\.(?:com|cn)(?:[/:?#]|$)/i,
+        );
+    }
+
+    function normalizeAmapUrl(input) {
+        return normalizeMapUrl(
+            input,
+            /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*(?:amap\.com|gaode\.com)(?:[/:?#]|$)/i,
+        );
     }
 
     function extractAppleMapsCoordinate(input) {
@@ -138,6 +166,13 @@
             latitude <= 90 &&
             longitude >= -180 &&
             longitude <= 180
+        );
+    }
+
+    function isNumericInput(value) {
+        return (
+            typeof value === "number" ||
+            (typeof value === "string" && value.trim() !== "")
         );
     }
 
@@ -276,21 +311,21 @@
     }
 
     function normalizeCoordinateSystem(value, fallback) {
-        var normalized = String(value || fallback || "auto")
-            .trim()
-            .toLowerCase()
-            .replace(/[-_]/g, "");
+        var useFallback =
+            value == null ||
+            (typeof value === "string" && value.trim() === "");
+        var selected = useFallback ? fallback || "auto" : value;
+        if (typeof selected !== "string") {
+            throw new Error("invalid coordinate system: " + value);
+        }
+        var normalized = selected.trim().toLowerCase();
         if (normalized === "auto") {
             return "auto";
         }
-        if (normalized === "gcj" || normalized === "gcj02") {
+        if (normalized === "gcj02") {
             return "gcj02";
         }
-        if (
-            normalized === "wgs" ||
-            normalized === "wgs84" ||
-            normalized === "epsg4326"
-        ) {
+        if (normalized === "wgs84") {
             return "wgs84";
         }
         throw new Error("invalid coordinate system: " + value);
@@ -314,6 +349,9 @@
         var useDefault =
             value == null ||
             (typeof value === "string" && value.trim() === "");
+        if (!useDefault && !isNumericInput(value)) {
+            throw new Error("invalid accuracy");
+        }
         var accuracy = useDefault ? DEFAULT_ACCURACY : Number(value);
         if (
             !Number.isFinite(accuracy) ||
@@ -328,53 +366,8 @@
         return accuracy;
     }
 
-    function objectValue(object, names) {
-        for (var i = 0; i < names.length; i += 1) {
-            if (Object.prototype.hasOwnProperty.call(object, names[i])) {
-                return object[names[i]];
-            }
-        }
-        return null;
-    }
-
     function buildSaveOperation(values) {
-        var action = String(objectValue(values, ["action"]) || "save")
-            .trim()
-            .toLowerCase();
-        if (action === "-") {
-            action = "clear";
-        }
-        var disableNames = [
-            "value",
-            "latitude",
-            "lat",
-            "longitude",
-            "lon",
-            "lng",
-        ];
-        for (var i = 0; i < disableNames.length; i += 1) {
-            var disableValue = objectValue(values, [disableNames[i]]);
-            if (
-                disableValue != null &&
-                String(disableValue).trim() === "-"
-            ) {
-                action = "clear";
-                break;
-            }
-        }
-
-        if (action !== "save") {
-            if (
-                action !== "clear" &&
-                action !== "status" &&
-                action !== "reset"
-            ) {
-                throw new Error("unsupported action: " + action);
-            }
-            return { action: action };
-        }
-
-        var sharedInput = objectValue(values, ["url", "input", "map"]);
+        var sharedInput = values.url;
         var extracted = sharedInput
             ? extractAppleMapsCoordinate(sharedInput)
             : null;
@@ -385,17 +378,11 @@
             coordinate = extracted;
             defaultCoordinateSystem = "auto";
         } else {
-            var latitudeValue = objectValue(values, ["latitude", "lat"]);
-            var longitudeValue = objectValue(values, [
-                "longitude",
-                "lon",
-                "lng",
-            ]);
+            var latitudeValue = values.latitude;
+            var longitudeValue = values.longitude;
             if (
-                latitudeValue == null ||
-                latitudeValue === "" ||
-                longitudeValue == null ||
-                longitudeValue === ""
+                !isNumericInput(latitudeValue) ||
+                !isNumericInput(longitudeValue)
             ) {
                 throw new Error(
                     sharedInput
@@ -415,31 +402,40 @@
         }
 
         var coordinateSystem = normalizeCoordinateSystem(
-            objectValue(values, [
-                "coordinateSystem",
-                "coordinate-system",
-                "crs",
-                "coord",
-            ]),
+            values.coordinateSystem,
             defaultCoordinateSystem,
         );
         var converted = convertCoordinate(coordinate, coordinateSystem);
         if (!validCoordinate(converted.latitude, converted.longitude)) {
             throw new Error("coordinate conversion failed");
         }
-        var accuracy = normalizeAccuracy(
-            objectValue(values, ["accuracy", "acc"]),
-        );
+        var accuracy = normalizeAccuracy(values.accuracy);
 
         return {
             action: "save",
             settings: {
-                schemaVersion: SETTINGS_SCHEMA_VERSION,
                 enabled: true,
                 latitude: converted.latitude,
                 longitude: converted.longitude,
                 accuracy: accuracy,
             },
+        };
+    }
+
+    function buildMapUrlOperation(values) {
+        if (extractAppleMapsCoordinate(values.url)) {
+            return buildSaveOperation(values);
+        }
+        var mapUrl =
+            normalizeAppleMapsUrl(values.url) || normalizeAmapUrl(values.url);
+        if (!mapUrl) {
+            throw new Error("unsupported map URL");
+        }
+        return {
+            action: "resolve-map-url",
+            url: mapUrl,
+            accuracy: values.accuracy,
+            coordinateSystem: values.coordinateSystem,
         };
     }
 
@@ -451,7 +447,27 @@
             input = input.length ? input[0] : "";
         }
         if (typeof input === "object") {
-            return buildSaveOperation(input);
+            if (Object.prototype.hasOwnProperty.call(input, "action")) {
+                var action = String(input.action || "save")
+                    .trim()
+                    .toLowerCase();
+                if (action === "-") {
+                    action = "clear";
+                }
+                if (action !== "save") {
+                    if (
+                        action !== "clear" &&
+                        action !== "status" &&
+                        action !== "reset"
+                    ) {
+                        throw new Error("unsupported action: " + action);
+                    }
+                    return { action: action };
+                }
+            }
+            return input.url != null
+                ? buildMapUrlOperation(input)
+                : buildSaveOperation(input);
         }
 
         var text = String(input).trim();
@@ -474,8 +490,8 @@
             }
             return buildIntentOperation(parsed);
         }
-        if (normalizeAppleMapsUrl(text)) {
-            return buildSaveOperation({ url: text });
+        if (normalizeAppleMapsUrl(text) || normalizeAmapUrl(text)) {
+            return buildMapUrlOperation({ url: text });
         }
 
         var coordinate = parseCoordinatePair(text);
@@ -526,7 +542,6 @@
             return false;
         }
         var keys = [
-            "schemaVersion",
             "enabled",
             "latitude",
             "longitude",
@@ -555,7 +570,6 @@
         }
         if (operation.action === "clear") {
             var disabled = {
-                schemaVersion: SETTINGS_SCHEMA_VERSION,
                 enabled: false,
             };
             var clearWritten = writeStoredString(JSON.stringify(disabled));
@@ -593,9 +607,78 @@
         throw new Error("unsupported action: " + operation.action);
     }
 
+    function finishError(error) {
+        finish({
+            success: false,
+            action: "error",
+            error: error && error.message ? error.message : String(error),
+        });
+    }
+
+    function resolveMapUrl(operation) {
+        if (
+            typeof $httpClient === "undefined" ||
+            !$httpClient ||
+            typeof $httpClient.get !== "function"
+        ) {
+            finishError(new Error("external map parser unavailable"));
+            return;
+        }
+
+        var requestUrl =
+            EXTERNAL_PARSE_URL +
+            "?format=json&cs=none&u=" +
+            encodeURIComponent(operation.url);
+        try {
+            $httpClient.get(
+                { url: requestUrl, timeout: 12 },
+                function (error, response, data) {
+                    if (error) {
+                        finishError(error);
+                        return;
+                    }
+                    try {
+                        var parsed = JSON.parse(String(data || ""));
+                        if (parsed.error) {
+                            throw new Error(String(parsed.error));
+                        }
+                        var status = response && Number(response.status);
+                        if (status && (status < 200 || status >= 300)) {
+                            throw new Error("map parser HTTP " + status);
+                        }
+                        var coordinateSystem = operation.coordinateSystem;
+                        if (
+                            coordinateSystem == null ||
+                            (typeof coordinateSystem === "string" &&
+                                coordinateSystem.trim() === "")
+                        ) {
+                            coordinateSystem = "auto";
+                        }
+                        finish(
+                            executeOperation(
+                                buildSaveOperation({
+                                    latitude: parsed.lat,
+                                    longitude: parsed.lon,
+                                    accuracy: operation.accuracy,
+                                    coordinateSystem: coordinateSystem,
+                                }),
+                            ),
+                        );
+                    } catch (err) {
+                        finishError(err);
+                    }
+                },
+            );
+        } catch (err) {
+            finishError(err);
+        }
+    }
+
     function resultMessage(result) {
         if (!result.success) {
-            return "Settings write failed";
+            return result.error
+                ? String(result.error)
+                : "Settings write failed";
         }
         if (result.action === "save" && result.settings) {
             return (
@@ -613,14 +696,26 @@
         if (result.action === "reset") {
             return "Module defaults restored";
         }
-        if (result.settings && result.settings.enabled) {
-            return (
-                Number(result.settings.latitude).toFixed(6) +
-                "," +
-                Number(result.settings.longitude).toFixed(6)
-            );
+        if (result.settings && result.settings.enabled !== false) {
+            if (
+                isNumericInput(result.settings.latitude) &&
+                isNumericInput(result.settings.longitude) &&
+                validCoordinate(
+                    Number(result.settings.latitude),
+                    Number(result.settings.longitude),
+                )
+            ) {
+                return (
+                    Number(result.settings.latitude).toFixed(6) +
+                    "," +
+                    Number(result.settings.longitude).toFixed(6)
+                );
+            }
+            return "Using module defaults";
         }
-        return result.settings ? "Passthrough enabled" : "Using module defaults";
+        return result.settings && result.settings.enabled === false
+            ? "Passthrough enabled"
+            : "Using module defaults";
     }
 
     function finish(result) {
@@ -630,26 +725,15 @@
             $notification &&
             typeof $notification.post === "function"
         ) {
-            $notification.post(
-                "iOS Location Spoofer",
-                result.success ? result.action : "error",
-                message,
-            );
+            try {
+                $notification.post(
+                    "iOS Location Spoofer",
+                    result.success ? result.action : "error",
+                    message,
+                );
+            } catch (err) {}
         }
         $done(result);
-    }
-
-    if (typeof module !== "undefined" && module.exports) {
-        module.exports = {
-            STORE_KEY: STORE_KEY,
-            extractAppleMapsCoordinate: extractAppleMapsCoordinate,
-            isMainlandChina: isMainlandChina,
-            gcj02ToWgs84: gcj02ToWgs84,
-            buildIntentOperation: buildIntentOperation,
-            readSettings: readSettings,
-            executeOperation: executeOperation,
-        };
-        return;
     }
 
     try {
@@ -657,12 +741,13 @@
             typeof $intent !== "undefined" && $intent
                 ? $intent.parameter
                 : null;
-        finish(executeOperation(buildIntentOperation(parameter)));
+        var operation = buildIntentOperation(parameter);
+        if (operation.action === "resolve-map-url") {
+            resolveMapUrl(operation);
+        } else {
+            finish(executeOperation(operation));
+        }
     } catch (err) {
-        finish({
-            success: false,
-            action: "error",
-            error: err.message,
-        });
+        finishError(err);
     }
 })();
