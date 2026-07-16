@@ -2,52 +2,17 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  *
  * HTTPS Shortcut control for iOS Location Spoofer. The same request route
- * works in Surge iOS and in Surge Mac gateway mode. Amap and coordinate-less
- * map links use the external parser.
+ * works in Surge iOS and in Surge Mac gateway mode. Only Apple Maps share
+ * URLs containing a numeric coordinate are accepted.
  */
 (function () {
     "use strict";
 
     var STORE_KEY = "ios_location_spoofer_settings";
-    var EXTERNAL_PARSE_URL =
-        "https://wloc-spoofer.wloc.workers.dev/api/parse";
     var SHORTCUT_CONTROL_PATTERN =
         /^https:\/\/location-spoofer\.test\/(set|status|clear|reset)(?:[?#]|$)/i;
     var DEFAULT_ACCURACY = 39;
     var MAX_ACCURACY = 100000;
-
-    // Fast mainland approximation adapted from the Nokia Maps rectangle method.
-    // Rectangle format: [west, south, east, north].
-    var MAINLAND_REGIONS = [
-        [79.4462, 42.8899, 96.33, 49.2204],
-        [109.6872, 39.3742, 135.0002, 54.1415],
-        [73.1246, 29.5297, 124.143255, 42.8899],
-        [82.9684, 26.7186, 97.0352, 29.5297],
-        [97.0253, 20.414096, 124.367395, 29.5297],
-        [107.975793, 17.871542, 111.744104, 20.414096],
-    ];
-    var MAINLAND_EXCLUSIONS = [
-        // Taiwan
-        [119.921265, 21.785006, 122.497559, 25.398623],
-        // Northern Vietnam
-        [101.8652, 20.0988, 106.665, 22.284],
-        [106.4525, 20.4878, 108.051, 21.5422],
-        // Conservative neighboring-country exclusions. Border locations can
-        // explicitly request gcj02 when their provider returns shifted data.
-        // Nepal
-        [80.0, 26.3, 88.25, 30.5],
-        // Bhutan
-        [88.7, 26.5, 92.2, 28.5],
-        // Northeast India and northern Myanmar
-        [92.0, 22.0, 97.5, 29.6],
-        // Russia and far-eastern neighbors
-        [109.0323, 50.3257, 119.127, 55.8175],
-        [127.4568, 49.5574, 137.0227, 55.8175],
-        [131.2662, 42.5692, 137.0227, 44.8922],
-        // Hong Kong and Macau; force gcj02 when a provider offsets these areas.
-        [113.825, 22.15, 114.435, 22.58],
-        [113.52, 22.06, 113.64, 22.23],
-    ];
 
     function safeDecode(value) {
         var text = String(value == null ? "" : value);
@@ -114,13 +79,6 @@
         );
     }
 
-    function normalizeAmapUrl(input) {
-        return normalizeMapUrl(
-            input,
-            /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*(?:amap\.com|gaode\.com)(?:[/:?#]|$)/i,
-        );
-    }
-
     function extractAppleMapsCoordinate(input) {
         var text = normalizeAppleMapsUrl(input);
         if (!text) {
@@ -178,175 +136,6 @@
         );
     }
 
-    function inRectangle(rectangle, longitude, latitude) {
-        return (
-            longitude >= rectangle[0] &&
-            longitude <= rectangle[2] &&
-            latitude >= rectangle[1] &&
-            latitude <= rectangle[3]
-        );
-    }
-
-    function isMainlandChina(longitude, latitude) {
-        var included = false;
-        var i;
-        for (i = 0; i < MAINLAND_REGIONS.length; i += 1) {
-            if (inRectangle(MAINLAND_REGIONS[i], longitude, latitude)) {
-                included = true;
-                break;
-            }
-        }
-        if (!included) {
-            return false;
-        }
-        for (i = 0; i < MAINLAND_EXCLUSIONS.length; i += 1) {
-            if (inRectangle(MAINLAND_EXCLUSIONS[i], longitude, latitude)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    function transformLatitude(x, y) {
-        var result =
-            -100 +
-            2 * x +
-            3 * y +
-            0.2 * y * y +
-            0.1 * x * y +
-            0.2 * Math.sqrt(Math.abs(x));
-        result +=
-            ((20 * Math.sin(6 * x * Math.PI) +
-                20 * Math.sin(2 * x * Math.PI)) *
-                2) /
-            3;
-        result +=
-            ((20 * Math.sin(y * Math.PI) +
-                40 * Math.sin((y / 3) * Math.PI)) *
-                2) /
-            3;
-        result +=
-            ((160 * Math.sin((y / 12) * Math.PI) +
-                320 * Math.sin((y * Math.PI) / 30)) *
-                2) /
-            3;
-        return result;
-    }
-
-    function transformLongitude(x, y) {
-        var result =
-            300 +
-            x +
-            2 * y +
-            0.1 * x * x +
-            0.1 * x * y +
-            0.1 * Math.sqrt(Math.abs(x));
-        result +=
-            ((20 * Math.sin(6 * x * Math.PI) +
-                20 * Math.sin(2 * x * Math.PI)) *
-                2) /
-            3;
-        result +=
-            ((20 * Math.sin(x * Math.PI) +
-                40 * Math.sin((x / 3) * Math.PI)) *
-                2) /
-            3;
-        result +=
-            ((150 * Math.sin((x / 12) * Math.PI) +
-                300 * Math.sin((x / 30) * Math.PI)) *
-                2) /
-            3;
-        return result;
-    }
-
-    function wgs84ToGcj02Unchecked(longitude, latitude) {
-        var radius = 6378245;
-        var eccentricity = 0.006693421622965943;
-        var deltaLatitude = transformLatitude(longitude - 105, latitude - 35);
-        var deltaLongitude = transformLongitude(longitude - 105, latitude - 35);
-        var radianLatitude = (latitude / 180) * Math.PI;
-        var magic = Math.sin(radianLatitude);
-        magic = 1 - eccentricity * magic * magic;
-        var sqrtMagic = Math.sqrt(magic);
-        deltaLatitude =
-            (deltaLatitude * 180) /
-            (((radius * (1 - eccentricity)) / (magic * sqrtMagic)) * Math.PI);
-        deltaLongitude =
-            (deltaLongitude * 180) /
-            ((radius / sqrtMagic) * Math.cos(radianLatitude) * Math.PI);
-        return {
-            longitude: longitude + deltaLongitude,
-            latitude: latitude + deltaLatitude,
-        };
-    }
-
-    function gcj02ToWgs84(longitude, latitude, force) {
-        if (!force && !isMainlandChina(longitude, latitude)) {
-            return {
-                longitude: longitude,
-                latitude: latitude,
-            };
-        }
-
-        var estimateLongitude = longitude;
-        var estimateLatitude = latitude;
-        for (var i = 0; i < 12; i += 1) {
-            var projected = wgs84ToGcj02Unchecked(
-                estimateLongitude,
-                estimateLatitude,
-            );
-            var longitudeError = projected.longitude - longitude;
-            var latitudeError = projected.latitude - latitude;
-            estimateLongitude -= longitudeError;
-            estimateLatitude -= latitudeError;
-            if (
-                Math.abs(longitudeError) < 1e-7 &&
-                Math.abs(latitudeError) < 1e-7
-            ) {
-                break;
-            }
-        }
-        return {
-            longitude: estimateLongitude,
-            latitude: estimateLatitude,
-        };
-    }
-
-    function normalizeCoordinateSystem(value, fallback) {
-        var useFallback =
-            value == null ||
-            (typeof value === "string" && value.trim() === "");
-        var selected = useFallback ? fallback || "auto" : value;
-        if (typeof selected !== "string") {
-            throw new Error("invalid coordinate system: " + value);
-        }
-        var normalized = selected.trim().toLowerCase();
-        if (normalized === "auto") {
-            return "auto";
-        }
-        if (normalized === "gcj02") {
-            return "gcj02";
-        }
-        if (normalized === "wgs84") {
-            return "wgs84";
-        }
-        throw new Error("invalid coordinate system: " + value);
-    }
-
-    function convertCoordinate(coordinate, coordinateSystem) {
-        if (coordinateSystem === "wgs84") {
-            return {
-                longitude: coordinate.longitude,
-                latitude: coordinate.latitude,
-            };
-        }
-        return gcj02ToWgs84(
-            coordinate.longitude,
-            coordinate.latitude,
-            coordinateSystem === "gcj02",
-        );
-    }
-
     function normalizeAccuracy(value) {
         var useDefault =
             value == null ||
@@ -369,47 +158,13 @@
     }
 
     function buildSaveOperation(values) {
-        var sharedInput = values.url;
-        var extracted = sharedInput
-            ? extractAppleMapsCoordinate(sharedInput)
-            : null;
-        var coordinate;
-        var defaultCoordinateSystem;
-
-        if (extracted) {
-            coordinate = extracted;
-            defaultCoordinateSystem = "auto";
-        } else {
-            var latitudeValue = values.latitude;
-            var longitudeValue = values.longitude;
-            if (
-                !isNumericInput(latitudeValue) ||
-                !isNumericInput(longitudeValue)
-            ) {
-                throw new Error(
-                    sharedInput
-                        ? "Apple Maps link has no numeric coordinate"
-                        : "missing or invalid coordinates",
-                );
-            }
-            coordinate = {
-                latitude: Number(latitudeValue),
-                longitude: Number(longitudeValue),
-            };
-            defaultCoordinateSystem = "wgs84";
+        var mapUrl = normalizeAppleMapsUrl(values.url);
+        if (!mapUrl) {
+            throw new Error("unsupported input (expected Apple Maps URL)");
         }
-
-        if (!validCoordinate(coordinate.latitude, coordinate.longitude)) {
-            throw new Error("missing or invalid coordinates");
-        }
-
-        var coordinateSystem = normalizeCoordinateSystem(
-            values.coordinateSystem,
-            defaultCoordinateSystem,
-        );
-        var converted = convertCoordinate(coordinate, coordinateSystem);
-        if (!validCoordinate(converted.latitude, converted.longitude)) {
-            throw new Error("coordinate conversion failed");
+        var coordinate = extractAppleMapsCoordinate(mapUrl);
+        if (!coordinate) {
+            throw new Error("Apple Maps URL has no numeric coordinate");
         }
         var accuracy = normalizeAccuracy(values.accuracy);
 
@@ -417,27 +172,10 @@
             action: "save",
             settings: {
                 enabled: true,
-                latitude: converted.latitude,
-                longitude: converted.longitude,
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude,
                 accuracy: accuracy,
             },
-        };
-    }
-
-    function buildMapUrlOperation(values) {
-        if (extractAppleMapsCoordinate(values.url)) {
-            return buildSaveOperation(values);
-        }
-        var mapUrl =
-            normalizeAppleMapsUrl(values.url) || normalizeAmapUrl(values.url);
-        if (!mapUrl) {
-            throw new Error("unsupported map URL");
-        }
-        return {
-            action: "resolve-map-url",
-            url: mapUrl,
-            accuracy: values.accuracy,
-            coordinateSystem: values.coordinateSystem,
         };
     }
 
@@ -472,23 +210,10 @@
                 sharedInput = sharedInput.length ? sharedInput[0] : "";
             }
             if (sharedInput != null) {
-                if (
-                    normalizeAppleMapsUrl(sharedInput) ||
-                    normalizeAmapUrl(sharedInput)
-                ) {
-                    return buildMapUrlOperation({
-                        url: sharedInput,
-                        accuracy: input.accuracy,
-                        coordinateSystem: input.coordinateSystem,
-                    });
-                }
-                var sharedCoordinate = parseCoordinatePair(sharedInput);
-                if (sharedCoordinate) {
-                    sharedCoordinate.accuracy = input.accuracy;
-                    sharedCoordinate.coordinateSystem = input.coordinateSystem;
-                    return buildSaveOperation(sharedCoordinate);
-                }
-                return buildIntentOperation(sharedInput);
+                return buildSaveOperation({
+                    url: sharedInput,
+                    accuracy: input.accuracy,
+                });
             }
             return buildSaveOperation(input);
         }
@@ -513,15 +238,10 @@
             }
             return buildIntentOperation(parsed);
         }
-        if (normalizeAppleMapsUrl(text) || normalizeAmapUrl(text)) {
-            return buildMapUrlOperation({ url: text });
+        if (normalizeAppleMapsUrl(text)) {
+            return buildSaveOperation({ url: text });
         }
-
-        var coordinate = parseCoordinatePair(text);
-        if (coordinate) {
-            return buildSaveOperation(coordinate);
-        }
-        throw new Error("unsupported Shortcut input");
+        throw new Error("unsupported input (expected Apple Maps URL)");
     }
 
     function requestQueryParameter(url, name) {
@@ -594,10 +314,6 @@
         return {
             input: sharedInput,
             accuracy: requestQueryParameter(url, "accuracy"),
-            coordinateSystem: requestQueryParameter(
-                url,
-                "coordinateSystem",
-            ),
         };
     }
 
@@ -715,65 +431,6 @@
         });
     }
 
-    function resolveMapUrl(operation) {
-        if (
-            typeof $httpClient === "undefined" ||
-            !$httpClient ||
-            typeof $httpClient.get !== "function"
-        ) {
-            finishError(new Error("external map parser unavailable"));
-            return;
-        }
-
-        var requestUrl =
-            EXTERNAL_PARSE_URL +
-            "?format=json&cs=none&u=" +
-            encodeURIComponent(operation.url);
-        try {
-            $httpClient.get(
-                { url: requestUrl, timeout: 12 },
-                function (error, response, data) {
-                    if (error) {
-                        finishError(error);
-                        return;
-                    }
-                    try {
-                        var parsed = JSON.parse(String(data || ""));
-                        if (parsed.error) {
-                            throw new Error(String(parsed.error));
-                        }
-                        var status = response && Number(response.status);
-                        if (status && (status < 200 || status >= 300)) {
-                            throw new Error("map parser HTTP " + status);
-                        }
-                        var coordinateSystem = operation.coordinateSystem;
-                        if (
-                            coordinateSystem == null ||
-                            (typeof coordinateSystem === "string" &&
-                                coordinateSystem.trim() === "")
-                        ) {
-                            coordinateSystem = "auto";
-                        }
-                        finish(
-                            executeOperation(
-                                buildSaveOperation({
-                                    latitude: parsed.lat,
-                                    longitude: parsed.lon,
-                                    accuracy: operation.accuracy,
-                                    coordinateSystem: coordinateSystem,
-                                }),
-                            ),
-                        );
-                    } catch (err) {
-                        finishError(err);
-                    }
-                },
-            );
-        } catch (err) {
-            finishError(err);
-        }
-    }
-
     function resultMessage(result) {
         if (!result.success) {
             return result.error
@@ -842,11 +499,7 @@
 
     try {
         var operation = buildIntentOperation(shortcutInput());
-        if (operation.action === "resolve-map-url") {
-            resolveMapUrl(operation);
-        } else {
-            finish(executeOperation(operation));
-        }
+        finish(executeOperation(operation));
     } catch (err) {
         finishError(err);
     }

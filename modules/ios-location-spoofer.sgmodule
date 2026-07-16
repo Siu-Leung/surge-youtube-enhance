@@ -10,10 +10,9 @@
 # Add action: Get Contents of URL
 # URL: https://location-spoofer.test/set
 # Method: POST; Request Body: JSON; input: Shortcut Input
-# Optional JSON fields: accuracy, coordinateSystem
+# Optional JSON field: accuracy
 # Commands: GET https://location-spoofer.test/status|clear|reset
-# coordinateSystem: auto | gcj02 | wgs84
-# Amap and coordinate-less links use wloc-spoofer.wloc.workers.dev for parsing.
+# Only Apple Maps share URLs containing numeric coordinates are supported.
 # Saved Shortcut values override module arguments. clear = passthrough.
 # reset = module arguments. Changes apply on next Apple WLOC response.
 
