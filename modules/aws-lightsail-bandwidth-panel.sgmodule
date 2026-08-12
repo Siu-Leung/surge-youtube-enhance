@@ -1,5 +1,6 @@
 #!name=AWS Lightsail Bandwidth Panel
 #!desc=Show monthly bandwidth for two Lightsail instances in two regions.
+#!category=Panels
 #!arguments=instance_1_name,instance_2_name,ACCESS_KEY_ID,SECRET_ACCESS_KEY
 #!arguments-desc=Enter two instance names from different regions. AWS keys may be raw or URL-encoded.
 
