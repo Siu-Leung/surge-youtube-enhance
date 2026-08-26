@@ -17,8 +17,8 @@
 # reset = module arguments. Changes apply on next Apple WLOC response.
 
 [Script]
-iOS Location Spoofer = type=http-response,pattern=^https?:\/\/gs-loc(?:-cn)?\.apple\.com\/clls\/wloc(?:\?.*)?$,requires-body=true,binary-body-mode=true,max-size=262144,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer.js,argument=latitude={{{latitude}}}&longitude={{{longitude}}}&accuracy={{{accuracy}}}
-Location Settings = type=http-request,pattern=^https:\/\/location-spoofer\.test\/(?:set|status|clear|reset)(?:\?.*)?$,requires-body=true,max-size=16384,timeout=15,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer-settings.js
+iOS Location Spoofer = type=http-response,pattern=^https?:\/\/gs-loc(?:-cn)?\.apple\.com\/clls\/wloc(?:\?.*)?$,requires-body=true,binary-body-mode=true,max-size=262144,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer/response.js,argument=latitude={{{latitude}}}&longitude={{{longitude}}}&accuracy={{{accuracy}}}
+Location Settings = type=http-request,pattern=^https:\/\/location-spoofer\.test\/(?:set|status|clear|reset)(?:\?.*)?$,requires-body=true,max-size=16384,timeout=15,engine=jsc,script-path=https://raw.githubusercontent.com/gholts/surge/main/scripts/location-spoofer/settings.js
 
 [Host]
 location-spoofer.test = 192.0.2.1
