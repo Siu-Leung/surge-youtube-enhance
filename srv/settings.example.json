@@ -1,0 +1,26 @@
+{
+    "defaults": {
+        "countries": "all",
+        "per_country": 2,
+        "max_nodes": 12,
+        "interval_minutes": 15,
+        "subscription_port": 18080,
+        "api_port": 18081,
+        "listen_address": "::",
+        "tune_network": false,
+        "port_min": 13107,
+        "port_max": 65535
+    },
+    "hosts": {
+        "vps-1": {
+            "label": "server-1",
+            "domain": "proxy-1.example.com",
+            "hostname": "server-1"
+        },
+        "vps-2": {
+            "label": "server-2",
+            "domain": "proxy-2.example.com",
+            "hostname": "server-2"
+        }
+    }
+}

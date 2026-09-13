@@ -1,0 +1,68 @@
+{
+    "$schema": "https://sing-box.sagernet.org/schema.json",
+    "log": {
+        "level": "info",
+        "timestamp": true
+    },
+    "certificate_providers": [
+        {
+            "type": "acme",
+            "tag": "anytls-cert",
+            "domain": [
+                "${DOMAIN}"
+            ],
+            "data_directory": "/var/lib/sing-box/acme",
+            "provider": "letsencrypt",
+            "dns01_challenge": {
+                "provider": "cloudflare",
+                "api_token": "${CLOUDFLARE_API_TOKEN}"
+            }
+        }
+    ],
+    "endpoints": [
+        {
+            "type": "tailscale",
+            "tag": "tailscale-ep",
+            "state_directory": "/var/lib/sing-box/tailscale",
+            "hostname": "${HOSTNAME}",
+            "advertise_exit_node": true
+        }
+    ],
+    "inbounds": [
+        {
+            "type": "anytls",
+            "tag": "anytls-in",
+            "listen": "::",
+            "listen_port": 443,
+            "reuse_addr": true,
+            "tcp_fast_open": true,
+            "users": [
+                {
+                    "name": "primary",
+                    "password": "${ANYTLS_PASSWORD}"
+                }
+            ],
+            "tls": {
+                "enabled": true,
+                "certificate_provider": "anytls-cert"
+            }
+        },
+        {
+            "type": "snell",
+            "tag": "snell-v6-in",
+            "listen": "::",
+            "listen_port": 8443,
+            "reuse_addr": true,
+            "tcp_fast_open": true,
+            "version": 6,
+            "psk": "${SNELL_PSK}",
+            "mode": "default"
+        }
+    ],
+    "outbounds": [
+        {
+            "type": "direct",
+            "tag": "direct"
+        }
+    ]
+}

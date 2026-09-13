@@ -1,0 +1,22 @@
+{
+    "sing_box_version": "1.14.0",
+    "listen_address": "::",
+    "anytls_port": 443,
+    "snell_port": 8443,
+    "subscription_port": 18080,
+    "api_port": 18081,
+    "port_min": 13107,
+    "port_max": 65535,
+    "countries": [],
+    "per_country": 2,
+    "max_nodes": 12,
+    "interval_minutes": 15,
+    "refresh_timeout_minutes": 30,
+    "feed_url": "https://www.vpngate.net/api/iphone/",
+    "check_url": "https://api.ipify.org",
+    "probe_seconds": 32,
+    "pool_memory_mb": 400,
+    "refresh_memory_mb": 350,
+    "http_memory_mb": 80,
+    "tune_network": false
+}
