@@ -10,9 +10,7 @@ const TITLE = "JMS Bandwidth";
 const API_URL = "https://justmysocks6.net/members/getbwcounter.php";
 const HTTP_TIMEOUT = 8;
 const BYTES_PER_GB = 1000 ** 3;
-const args = parseArguments(
-    typeof $argument === "undefined" ? "" : $argument,
-);
+const args = parseArguments(typeof $argument === "undefined" ? "" : $argument);
 
 main().catch((error) => {
     finish({

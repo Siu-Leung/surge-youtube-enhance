@@ -148,10 +148,7 @@
     }
 
     function encodeVarintSignedInt64(value) {
-        if (
-            typeof value !== "bigint" &&
-            !Number.isSafeInteger(value)
-        ) {
+        if (typeof value !== "bigint" && !Number.isSafeInteger(value)) {
             throw new Error("invalid signed int64");
         }
         var v = typeof value === "bigint" ? value : BigInt(value);
@@ -332,10 +329,7 @@
 
     function normalizeConfig(input) {
         var cfg = mergeConfig(DEFAULT_CONFIG, input);
-        if (
-            !isNumericInput(cfg.latitude) ||
-            !isNumericInput(cfg.longitude)
-        ) {
+        if (!isNumericInput(cfg.latitude) || !isNumericInput(cfg.longitude)) {
             throw new Error("invalid coordinates");
         }
         cfg.latitude = Number(cfg.latitude);
@@ -462,9 +456,7 @@
         }
 
         if (!locationFieldFound) {
-            parts.push(
-                makeLengthDelimitedField(2, newLocationPayload(config)),
-            );
+            parts.push(makeLengthDelimitedField(2, newLocationPayload(config)));
             patchedLocation = true;
         }
 
@@ -500,9 +492,7 @@
         }
 
         if (!locationFieldFound) {
-            parts.push(
-                makeLengthDelimitedField(5, newLocationPayload(config)),
-            );
+            parts.push(makeLengthDelimitedField(5, newLocationPayload(config)));
             patchedLocation = true;
         }
 
@@ -526,9 +516,7 @@
                     config,
                 );
                 if (wifiResult.patched) {
-                    parts.push(
-                        makeLengthDelimitedField(2, wifiResult.payload),
-                    );
+                    parts.push(makeLengthDelimitedField(2, wifiResult.payload));
                     wifiCount += 1;
                 } else {
                     parts.push(field.raw);
@@ -537,10 +525,7 @@
                 isCellResponseField(field.fieldNumber) &&
                 field.wireType === 2
             ) {
-                var cellResult = patchCellTowerResult(
-                    field.valueBytes,
-                    config,
-                );
+                var cellResult = patchCellTowerResult(field.valueBytes, config);
                 if (cellResult.patched) {
                     parts.push(
                         makeLengthDelimitedField(
@@ -611,10 +596,7 @@
     }
 
     function extractLengthPrefixedAt(responseBytes, offset) {
-        if (
-            offset < 0 ||
-            offset + 10 > responseBytes.length
-        ) {
+        if (offset < 0 || offset + 10 > responseBytes.length) {
             return null;
         }
         var payloadLength = readUInt16BE(responseBytes, offset + 8);
@@ -742,8 +724,7 @@
             markerSearchOffset = markerIdx + 1;
         }
 
-        var lengthPrefixed =
-            scanLengthPrefixedAppleWLocPayload(responseBytes);
+        var lengthPrefixed = scanLengthPrefixedAppleWLocPayload(responseBytes);
         if (lengthPrefixed) {
             return lengthPrefixed;
         }
@@ -823,12 +804,11 @@
                 extraction.suffix,
             ]);
         } else if (extraction.kind === "raw-offset") {
-            response = concatBytes([
-                extraction.prefix,
-                patched.payload,
-            ]);
+            response = concatBytes([extraction.prefix, patched.payload]);
         } else {
-            throw new Error("unsupported Apple WLoc envelope: " + extraction.kind);
+            throw new Error(
+                "unsupported Apple WLoc envelope: " + extraction.kind,
+            );
         }
 
         return {
@@ -1048,11 +1028,7 @@
             var decompressed = decompressBody(bytes, encoding);
             var decoded =
                 decompressed instanceof Uint8Array ? decompressed : null;
-            if (
-                decoded &&
-                decoded.length > 2 &&
-                !isGzipBytes(decoded)
-            ) {
+            if (decoded && decoded.length > 2 && !isGzipBytes(decoded)) {
                 return decoded;
             }
             return null;

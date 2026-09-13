@@ -38,10 +38,7 @@
     }
 
     function appleMapsParameter(text, name) {
-        var pattern = new RegExp(
-            "(?:[?&]|&amp;)" + name + "=([^&#\\s]+)",
-            "i",
-        );
+        var pattern = new RegExp("(?:[?&]|&amp;)" + name + "=([^&#\\s]+)", "i");
         var match = text.match(pattern);
         return match ? parseCoordinatePair(safeDecode(match[1])) : null;
     }
@@ -138,8 +135,7 @@
 
     function normalizeAccuracy(value) {
         var useDefault =
-            value == null ||
-            (typeof value === "string" && value.trim() === "");
+            value == null || (typeof value === "string" && value.trim() === "");
         if (!useDefault && !isNumericInput(value)) {
             throw new Error("invalid accuracy");
         }
@@ -249,7 +245,9 @@
         if (queryIndex < 0) {
             return null;
         }
-        var query = String(url).slice(queryIndex + 1).split("#")[0];
+        var query = String(url)
+            .slice(queryIndex + 1)
+            .split("#")[0];
         var pairs = query.split("&");
         for (var i = 0; i < pairs.length; i += 1) {
             var pair = pairs[i];
@@ -287,9 +285,7 @@
         if (typeof $request === "undefined" || !$request) {
             throw new Error("missing Shortcut request");
         }
-        var match = String($request.url || "").match(
-            SHORTCUT_CONTROL_PATTERN,
-        );
+        var match = String($request.url || "").match(SHORTCUT_CONTROL_PATTERN);
         if (!match) {
             throw new Error("invalid Shortcut control URL");
         }
@@ -357,12 +353,7 @@
         if (!expected || !actual) {
             return false;
         }
-        var keys = [
-            "enabled",
-            "latitude",
-            "longitude",
-            "accuracy",
-        ];
+        var keys = ["enabled", "latitude", "longitude", "accuracy"];
         for (var i = 0; i < keys.length; i += 1) {
             var key = keys[i];
             if (
@@ -415,7 +406,8 @@
             );
             var saved = readSettings();
             return {
-                success: saveWritten && settingsMatch(operation.settings, saved),
+                success:
+                    saveWritten && settingsMatch(operation.settings, saved),
                 action: "save",
                 settings: saved,
             };

@@ -7,9 +7,7 @@ const DEFAULT_TITLE = "Sub Info";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HTTP_TIMEOUT = 10;
 const BYTES_PER_GB = 1000 ** 3;
-const args = parseArguments(
-    typeof $argument === "undefined" ? "" : $argument,
-);
+const args = parseArguments(typeof $argument === "undefined" ? "" : $argument);
 
 main().catch((error) => {
     finish({
