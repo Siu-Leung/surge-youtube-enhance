@@ -293,7 +293,10 @@ SOFTWARE.
             [7, "content", "NextContent"],
             [8, "onResponseReceivedAction", "BrowseContent"],
             [14, "playerOverlays", "PlayerOverlays"],
+            [25, "engagementPanels", "EngagementPanel", true],
         ],
+        EngagementPanel: [[138681066, "renderer", "EngagementPanelRenderer"]],
+        EngagementPanelRenderer: [[3, "content", "BrowseContent"]],
         NextContent: [[51779735, "nextResult", "NextResult"]],
         NextResult: [[1, "content", "BrowseContent"]],
         PlayerOverlays: [[78882851, "renderer", "PlayerOverlayRenderer"]],
@@ -517,6 +520,7 @@ SOFTWARE.
         "full_width_portrait_image_layout.eml-fe",
         "full_width_square_image_layout.eml-fe",
         "video_display_full_buttoned_layout.eml-fe",
+        "shopping_description_shelf.eml-fe",
     ]);
     const AD_TRACKING = textEncoder.encode("/pagead/");
     const GAME_CARD = textEncoder.encode("mini_game_card.eml");
@@ -569,6 +573,7 @@ SOFTWARE.
     }
     function removeFeedAds(message, { blockGames = true } = {}) {
         let changed = false;
+        const emptied = new WeakSet();
         visitObjects(message, (object) => {
             for (const field of ["richItemContents", "overlays"]) {
                 if (!Array.isArray(object[field])) continue;
@@ -577,6 +582,7 @@ SOFTWARE.
                 );
                 changed =
                     keep.length !== object[field].length || changed;
+                if (object[field].length && !keep.length) emptied.add(object);
                 object[field] = keep;
             }
             if (Array.isArray(object.promotedContents)) {
@@ -595,6 +601,29 @@ SOFTWARE.
                 object.attachments = keep;
             }
         });
+        // Remove only wrappers emptied by filtering, not pre-existing placeholders
+        // or ordinary videos whose shopping attachment was removed.
+        function emptyContainer(object) {
+            if (!object || typeof object !== "object") return false;
+            if (emptied.has(object)) return true;
+            return ["videoWithContextRenderer", "videoRendererContent",
+                "itemSectionRenderer", "renderer", "content", "item"]
+                .some((key) => emptyContainer(object[key]));
+        }
+        function prune(object) {
+            if (!object || typeof object !== "object" || ArrayBuffer.isView(object)) return;
+            for (const child of Object.values(object)) prune(child);
+            for (const field of ["richItemContents", "contents",
+                "sectionListSupportedRenderers", "overlayCollections"]) {
+                if (!Array.isArray(object[field])) continue;
+                const keep = object[field].filter((item) => !emptyContainer(item));
+                if (keep.length === object[field].length) continue;
+                changed = true;
+                if (!keep.length) emptied.add(object);
+                object[field] = keep;
+            }
+        }
+        prune(message);
         return changed;
     }
     function enhancePlayer(player, parameters) {
