@@ -297,10 +297,19 @@ SOFTWARE.
         NextContent: [[51779735, "nextResult", "NextResult"]],
         NextResult: [[1, "content", "BrowseContent"]],
         PlayerOverlays: [[78882851, "renderer", "PlayerOverlayRenderer"]],
-        PlayerOverlayRenderer: [[3, "related", "RelatedOverlay"]],
+        PlayerOverlayRenderer: [
+            [3, "related", "RelatedOverlay"],
+            [42, "overlayCollections", "OverlayCollection", true],
+        ],
+        OverlayCollection: [[401855120, "renderer", "OverlayCollectionRenderer"]],
+        OverlayCollectionRenderer: [[2, "overlays", "OverlayItem", true]],
+        OverlayItem: [[401855122, "content", "OverlayContent"]],
+        OverlayContent: [[1, "item", "RichItemContent"]],
         RelatedOverlay: [[29209665, "contents", "RelatedOverlayContents"]],
         RelatedOverlayContents: [[2, "contents", "RichItemContent", true]],
         Player: [
+            [60, "overlayCollections", "OverlayCollection", true],
+            [61, "paidPromotion", "bytes"],
             [7, "adPlacements", "bytes", true],
             [2, "playabilityStatus", "PlayabilityStatus"],
             [9, "playbackTracking", "PlaybackTracking"],
@@ -510,10 +519,11 @@ SOFTWARE.
         "video_display_full_buttoned_layout.eml-fe",
     ]);
     const AD_TRACKING = textEncoder.encode("/pagead/");
-    function containsAdTracking(bytes) {
-        outer: for (let i = 0; i <= bytes.length - AD_TRACKING.length; i++) {
-            for (let j = 0; j < AD_TRACKING.length; j++)
-                if (bytes[i + j] !== AD_TRACKING[j]) continue outer;
+    const GAME_CARD = textEncoder.encode("mini_game_card.eml");
+    function containsMarker(bytes, marker = AD_TRACKING) {
+        outer: for (let i = 0; i <= bytes.length - marker.length; i++) {
+            for (let j = 0; j < marker.length; j++)
+                if (bytes[i + j] !== marker[j]) continue outer;
             return true;
         }
         return false;
@@ -532,7 +542,7 @@ SOFTWARE.
             stack.push(...Object.values(object));
         }
     }
-    function isAdvertisement(item) {
+    function isBlockedItem(item, blockGames) {
         let ad = false;
         visitObjects(item, (object) => {
             const layout = object.layoutRender?.eml?.split("|")[0];
@@ -545,27 +555,33 @@ SOFTWARE.
             if (
                 unknownFields(object).some(
                     (field) =>
-                        field.wire === 2 && containsAdTracking(field.data),
+                        field.wire === 2 &&
+                        (containsMarker(field.data) ||
+                            field.no === 400157044 || // Product overlay.
+                            field.no === 455507059 || // Paid-promotion overlay.
+                            (blockGames && field.no === 312131490 &&
+                                containsMarker(field.data, GAME_CARD))),
                 )
             )
                 ad = true;
         });
         return ad;
     }
-    function removeFeedAds(message) {
+    function removeFeedAds(message, { blockGames = true } = {}) {
         let changed = false;
         visitObjects(message, (object) => {
-            if (Array.isArray(object.richItemContents)) {
-                const keep = object.richItemContents.filter(
-                    (item) => !isAdvertisement(item),
+            for (const field of ["richItemContents", "overlays"]) {
+                if (!Array.isArray(object[field])) continue;
+                const keep = object[field].filter(
+                    (item) => !isBlockedItem(item, blockGames),
                 );
                 changed =
-                    keep.length !== object.richItemContents.length || changed;
-                object.richItemContents = keep;
+                    keep.length !== object[field].length || changed;
+                object[field] = keep;
             }
             if (Array.isArray(object.promotedContents)) {
                 const keep = object.promotedContents.filter(
-                    (bytes) => !containsAdTracking(bytes),
+                    (bytes) => !containsMarker(bytes),
                 );
                 changed =
                     keep.length !== object.promotedContents.length || changed;
@@ -581,7 +597,9 @@ SOFTWARE.
         });
         return changed;
     }
-    function enhancePlayer(player) {
+    function enhancePlayer(player, parameters) {
+        removeFeedAds(player, parameters);
+        delete player.paidPromotion;
         player.adPlacements = [];
         player.adSlots = [];
         if (player.playbackTracking)
@@ -669,10 +687,10 @@ SOFTWARE.
             });
         return true;
     }
-    function enhanceWatch(message) {
+    function enhanceWatch(message, parameters) {
         for (const content of message.contents) {
-            if (content.player) enhancePlayer(content.player);
-            if (content.next) removeFeedAds(content.next);
+            if (content.player) enhancePlayer(content.player, parameters);
+            if (content.next) removeFeedAds(content.next, parameters);
         }
         return true;
     }
@@ -1556,13 +1574,12 @@ SOFTWARE.
             }
             readVarint() {
                 let first = this.readByte(),
-                    size = 0;
-                for (let candidate = 1; candidate <= 5; candidate++)
+                    size = 5;
+                for (let candidate = 1; candidate < 5; candidate++)
                     if (!(first & (128 >> (candidate - 1)))) {
                         size = candidate;
                         break;
                     }
-                if (!size) throw new Error("Invalid size");
                 let bits2 = size === 5 ? 0 : 8 - size,
                     value = size === 5 ? 0 : first & ((1 << (8 - size)) - 1);
                 for (let index = 1; index < size; index++)
@@ -2328,7 +2345,7 @@ SOFTWARE.
         );
         return field ? numberValue(field.data) : 0;
     }
-    function rewriteEncryptedPart(bytes, crypto) {
+    function rewriteEncryptedPart(bytes, crypto, parameters) {
         const part = EncryptedResponsePart.fromBinary(bytes);
         if (part.compressionAlgorithm > 1)
             throw new Error("Unsupported UMP compression");
@@ -2339,8 +2356,8 @@ SOFTWARE.
         const plaintext = gzipped ? gunzipSync(decrypted) : decrypted;
         const response = OnesieInnertubeResponse.fromBinary(plaintext);
         for (let content of response.contents)
-            (content.player && enhancePlayer(content.player),
-                content.next && removeFeedAds(content.next));
+            (content.player && enhancePlayer(content.player, parameters),
+                content.next && removeFeedAds(content.next, parameters));
         const output = OnesieInnertubeResponse.toBinary(response);
         if (sameBytes(output, plaintext)) return bytes;
         const compressed = gzipped
@@ -2372,6 +2389,7 @@ SOFTWARE.
                 reader = new UmpReader(environment2.response.bodyBytes),
                 writer = new UmpWriter(environment2.response.bodyBytes.length),
                 rewriteNextPart = !1;
+            const parameters = environment2.parameters({ blockGames: true });
             for (; reader.hasNext;) {
                 let part = reader.readPart();
                 (part.type === ONESIE_HEADER_PART
@@ -2379,7 +2397,7 @@ SOFTWARE.
                           headerType(part.data) === ONESIE_INNERTUBE_RESPONSE)
                     : part.type === ENCRYPTED_RESPONSE_PART &&
                       rewriteNextPart &&
-                      ((part.data = rewriteEncryptedPart(part.data, crypto)),
+                      ((part.data = rewriteEncryptedPart(part.data, crypto, parameters)),
                       (rewriteNextPart = !1)),
                     writer.writePart(part));
             }
