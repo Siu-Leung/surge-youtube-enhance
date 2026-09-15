@@ -535,6 +535,7 @@ SOFTWARE.
     const AD_TRACKING = textEncoder.encode("/pagead/");
     const GAME_CARD = textEncoder.encode("mini_game_card.eml");
     const LIVE_BADGE = textEncoder.encode("youtube_outline_experimental/live_24pt");
+    const IMMERSIVE_LIVE = textEncoder.encode("immersive_live");
     function containsMarker(bytes, marker = AD_TRACKING) {
         outer: for (let i = 0; i <= bytes.length - marker.length; i++) {
             for (let j = 0; j < marker.length; j++)
@@ -557,14 +558,28 @@ SOFTWARE.
             stack.push(...Object.values(object));
         }
     }
-    function isBlockedItem(item, blockGames, blockLiveShelf) {
+    function hasVerticalLiveTarget(lockup) {
+        let bytes = unknownFields(lockup).find((field) => field.no === 18 && field.wire === 2)?.data;
+        // Primary tap target only; a channel avatar may link to a different live.
+        try {
+            for (const no of [4, 169495254, 462702848, 1, 139608561, 50, 7, 3]) {
+                if (!bytes) return false;
+                bytes = wireFields(bytes).find((field) => field.no === no && field.wire === 2)?.data;
+            }
+            return !!bytes && sameBytes(bytes, IMMERSIVE_LIVE);
+        } catch {
+            return false;
+        }
+    }
+    function isBlockedItem(item, blockGames, blockVerticalLive) {
         let ad = false;
         visitObjects(item, (object) => {
             const layout = object.layoutRender?.eml?.split("|")[0];
             if (
                 AD_LAYOUTS.has(layout) ||
                 object.sponsoredVideo ||
-                object.sponsoredDisplay
+                object.sponsoredDisplay ||
+                (blockVerticalLive && object.videoLockup && hasVerticalLiveTarget(object.videoLockup))
             )
                 ad = true;
             if (
@@ -574,7 +589,7 @@ SOFTWARE.
                         (containsMarker(field.data) ||
                             field.no === 400157044 || // Product overlay.
                             field.no === 455507059 || // Paid-promotion overlay.
-                            (blockLiveShelf &&
+                            (blockVerticalLive &&
                                 field.no === 519005951 &&
                                 containsMarker(field.data, LIVE_BADGE)) ||
                             (blockGames &&
@@ -586,14 +601,14 @@ SOFTWARE.
         });
         return ad;
     }
-    function removeFeedAds(message, { blockGames = true, blockLiveShelf = false } = {}) {
+    function removeFeedAds(message, { blockGames = true, blockVerticalLive = false } = {}) {
         let changed = false;
         const emptied = new WeakSet();
         visitObjects(message, (object) => {
             for (const field of ["richItemContents", "overlays"]) {
                 if (!Array.isArray(object[field])) continue;
                 const keep = object[field].filter(
-                    (item) => !isBlockedItem(item, blockGames, blockLiveShelf),
+                    (item) => !isBlockedItem(item, blockGames, blockVerticalLive),
                 );
                 changed = keep.length !== object[field].length || changed;
                 if (object[field].length && !keep.length) emptied.add(object);
