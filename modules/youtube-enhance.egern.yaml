@@ -1,0 +1,80 @@
+name: "YouTube Enhance"
+description: "移除 YouTube 广告，启用画中画/后台播放，并强制最高画质。派生自 Maasea (Apache-2.0)。"
+category: "Streaming"
+compat_arguments:
+  block_upload: "true"
+  block_shorts: "false"
+  auto_hd: "true"
+  block_games: "true"
+  block_vertical_live: "false"
+compat_arguments_desc: "block_upload: 隐藏底部上传按钮\nblock_shorts: 隐藏 Shorts\nauto_hd: 强制最高画质\nblock_games: 隐藏 Playables 小游戏\nblock_vertical_live: 隐藏竖屏直播推荐流"
+
+rules:
+  - and:
+      - domain_suffix: googlevideo.com
+      - protocol: quic
+    policy: REJECT
+  - and:
+      - domain_suffix: youtubei.googleapis.com
+      - protocol: quic
+    policy: REJECT
+
+http_rewrites:
+  - match: ^https:\/\/www\.youtube\.com\/(pagead|pcs)\/
+    type: reject
+  - match: ^https:\/\/s\.youtube\.com\/api\/stats\/ads
+    type: reject
+
+scriptings:
+  - http_request:
+      name: youtube.enhance.ad-break
+      match: ^https:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/player\/ad_break(?:\?.*)?$
+      script_url: https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/scripts/youtube/request.js
+      timeout: 10
+
+  - http_response:
+      name: youtube.enhance.response
+      match: ^https:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/(?:navigation\/resolve_url|browse|next|player|search|reel\/reel_watch_sequence|guide|account\/get_setting|get_watch|log_event|config)(?:\?.*)?$
+      script_url: https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/scripts/youtube/response.js
+      arguments:
+        _compat.$argument: '{"blockUpload":{{{block_upload}}},"blockShorts":{{{block_shorts}}},"blockGames":{{{block_games}}},"blockVerticalLive":{{{block_vertical_live}}}}'
+      body_required: true
+      timeout: 15
+
+  - http_response:
+      name: youtube.enhance.ump
+      match: ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback(?:\?.*)?$
+      script_url: https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/scripts/youtube/response.js
+      arguments:
+        _compat.$argument: '{"blockGames":{{{block_games}}},"blockVerticalLive":{{{block_vertical_live}}}}'
+      body_required: true
+      timeout: 15
+
+  - http_request:
+      name: youtube.enhance.init
+      match: ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback(?:\?.*)?$
+      script_url: https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/scripts/youtube/request.js
+      body_required: true
+      timeout: 10
+
+  - http_request:
+      name: youtube.enhance.auto-hd
+      match: ^https?:\/\/[\w-]+\.googlevideo\.com\/videoplayback
+      script_url: https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/scripts/youtube/request.js
+      arguments:
+        _compat.$argument: '{"autoHd":{{{auto_hd}}}}'
+      body_required: true
+      timeout: 10
+
+  - http_request:
+      name: youtube.enhance.log-event
+      match: ^https:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/log_event
+      script_url: https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/scripts/youtube/request.js
+      body_required: true
+      timeout: 10
+
+mitm:
+  hostnames:
+    - '*.googlevideo.com'
+    - 'youtubei.googleapis.com'
+    - '*.youtube.com'

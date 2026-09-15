@@ -1,53 +1,68 @@
 # surge-youtube-enhance
 
-Fork of [gholts/surge](https://github.com/gholts/surge) — 只关注其中的 YouTube 去广告模块。
+Fork of [gholts/surge](https://github.com/gholts/surge) — YouTube 去广告、画中画/后台播放与最高画质模块（兼容 Surge / Egern / Loon / Shadowrocket）。
 
-- 模块：[modules/youtube-enhance.sgmodule](modules/youtube-enhance.sgmodule)
 - 脚本：[scripts/youtube/request.js](scripts/youtube/request.js)、[scripts/youtube/response.js](scripts/youtube/response.js)
+- 测试套件：[test/youtube/](test/youtube/)（143 项单测全通过）
 
-上游代码派生自 [Maasea/sgmodule](https://github.com/Maasea/sgmodule)（Apache-2.0），
-主要改动是把 Maasea 依赖外部 Cloudflare Worker 解密 UMP 流的做法，
-改成在 Surge 脚本里本地完成 AES-CTR + HMAC-SHA256 解密/重签名。
+上游代码派生自 [Maasea/sgmodule](https://github.com/Maasea/sgmodule)（Apache-2.0），主要改动是把原版依赖外部 Cloudflare Worker 解密 UMP 流的做法，改为在代理脚本内本地完成 AES-CTR + HMAC-SHA256 解密与重签名，不依赖第三方云端服务。
 
-## 审计结论（2026-09）
+---
 
-我用 Node 搭了个 Surge 环境模拟器，把两个脚本跑在合成的 protobuf / UMP 报文上，
-共 143 项断言全部通过（[test/youtube](test/youtube)）：
+## 模块文件与下载链接
 
+| 平台 / 格式 | 模块文件路径 | 远程安装 Raw 链接 |
+|---|---|---|
+| **Surge (.sgmodule)** | [`modules/youtube-enhance.sgmodule`](modules/youtube-enhance.sgmodule) | `https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/modules/youtube-enhance.sgmodule` |
+| **Egern 推荐 (.module)** | [`modules/youtube-enhance.module`](modules/youtube-enhance.module) | `https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/modules/youtube-enhance.module` |
+| **Egern 原生 YAML (.yaml)** | [`modules/youtube-enhance.egern.yaml`](modules/youtube-enhance.egern.yaml) | `https://raw.githubusercontent.com/Siu-Leung/surge-youtube-enhance/main/modules/youtube-enhance.egern.yaml` |
+
+---
+
+## 使用与配置说明
+
+### 1. 为什么一定要阻断 QUIC？
+YouTube iOS 客户端默认优先使用 **QUIC (HTTP/3)** 协议发起音视频流和配置请求。iOS 代理 App 目前普遍无法解密基于 UDP 443 的 QUIC 流量。如果放行 QUIC，请求会直接绕过 MITM 脚本，导致去广告完全失效。
+
+因此，本模块在 `[Rule]`（或 `rules:`）中默认内置了：
 ```
-node test/youtube/index.js
+AND,((DOMAIN-SUFFIX,googlevideo.com),(PROTOCOL,QUIC)),REJECT
+AND,((DOMAIN-SUFFIX,youtubei.googleapis.com),(PROTOCOL,QUIC)),REJECT
 ```
+阻断 QUIC 后，YouTube App 会自动降级为标准 TCP/TLS，脚本即可稳定拦截并改写 Protobuf 报文。
 
-**逻辑本身没有坏。** 已验证有效的部分：
+### 2. Surge 导入
+进入 Surge iOS：
+1. 模块 (Modules) ➔ 安装新模块 ➔ 填入上面的 `youtube-enhance.sgmodule` 链接。
+2. 确保在 Surge 的 MITM 证书已信任并开启。
 
-- `/player`：`adPlacements`、`adSlots`、`paidPromotion`、`pagead` 回传追踪全部清除；
-  PiP 与后台播放被强制打开
-- 信息流（`browse` / `next` / `search`）：6 种已知广告布局 + `sponsoredVideo` /
-  `sponsoredDisplay` / `/pagead/` 字节特征都能命中，且顺序保持、正常视频不被误删
-- `navigation/resolve_url`（嵌入式播放器）与 `get_watch` 也覆盖
-- UMP/onesie：`initplayback` 加密流能正确解密、改广告、重新签名，
-  gzip 0/6/9 与不压缩四种变体都通过，无关分片原样保留
+### 3. Egern 导入
+Egern 支持两种方式：
+- **方式 A（最简推荐）**：在 Egern 的「工具 ➔ 模块 ➔ 添加模块」中，填入 `youtube-enhance.module`（或 `youtube-enhance.sgmodule`），Egern 会原生解析并启用。
+- **方式 B（YAML 模式）**：在配置文件或自定义模块中引用 `youtube-enhance.egern.yaml`。
 
-## 已知风险点
+---
 
-1. **广告布局名是硬编码白名单**（`AD_LAYOUTS`，6 条）。YouTube 新增布局即失效，
-   这是最可能需要跟着更新的地方。Maasea 用「跨请求持久化的广告缓存」来学习新布局
-   （`YouTubeAdvertiseInfo`），本 fork 明确注释了不这么做：
-   *"Ad classification is local to a rendered item, never learned across requests."*
-   取舍是：漏掉新布局 vs. 误判污染缓存。
-2. **MITM 未覆盖 `youtubei-att.googleapis.com`**。该域名用于客户端 attestation / PoToken，
-   见 [Maasea/sgmodule#96](https://github.com/Maasea/sgmodule/issues/96)。
-3. **UMP 失败即放弃**：HMAC 校验失败 / 无缓存 key 时，脚本返回空 body，
-   让 App 回退到 `/youtubei/v1/player`（后者可被正常改写）。这是有意设计，
-   但意味着一旦 key 协商出问题，起播会变慢。
-4. 服务端广告插入（SSAI）若在某路流量铺开，改元数据对该路无效——
-   目前未找到 2026 年移动端已大规模启用的可靠证据。
+## 核心实现与审计结论 (2026-09)
 
-## 相关
+通过纯 Node 内置模块环境运行的仿真测试套件（`npm test` 或 `node test/youtube/index.js`），共 143 项断言已全部通过：
 
-- 上游：<https://github.com/gholts/surge>
-- 原始实现：<https://github.com/Maasea/sgmodule>
-- issue 参考：[#96](https://github.com/Maasea/sgmodule/issues/96)（attestation 域名）、
-  [#104](https://github.com/Maasea/sgmodule/issues/104)、
-  [#106](https://github.com/Maasea/sgmodule/issues/106)、
-  [#108](https://github.com/Maasea/sgmodule/issues/108)
+1. **`/player`**：清理 `adPlacements`、`adSlots`、`paidPromotion` 及 `pagead` 统计追踪；强启 PiP（画中画）与后台播放能力标志。
+2. **信息流 (`browse` / `next` / `search`)**：识别并清除 `inline_injection_entrypoint_layout.eml` 等 6 种已知广告布局，以及带有 `sponsoredVideo` / `sponsoredDisplay` / `/pagead/` 特征的卡片；保持正常视频原有顺序与结构。
+3. **`navigation/resolve_url` 与 `get_watch`**：清理嵌套播放器及下期推荐中的广告。
+4. **UMP / Onesie (`initplayback`)**：
+   - 本地捕获 `youtubei/v1/config` 下发的密钥。
+   - 对 `googlevideo.com/initplayback` 加密二进制流进行 AES-128-CTR + HMAC-SHA256 解密与验证。
+   - 移除内置播放器广告并重签 HMAC，兼容 gzip (0/6/9) 及未压缩模式；若密钥协商异常则优雅回退空包，促使客户端走可解密的普通请求。
+
+---
+
+## 常见排查
+
+1. **若仍看到广告**：
+   - 检查 MITM 主机名列表中是否包含了 `*.googlevideo.com`、`youtubei.googleapis.com`、`*.youtube.com`，且根证书状态为“已信任”。
+   - 确认 QUIC 拦截规则已生效（可尝试清理 YouTube App 缓存或重开飞行模式触发降级）。
+2. **单测运行**：
+   ```bash
+   cd test && npm test
+   ```
