@@ -87,9 +87,11 @@
         : "youtube";
     const emptyPlayback = () =>
         $done({
-            status: 200,
-            headers: { "Content-Type": "application/x-protobuf" },
-            body: new Uint8Array(),
+            response: {
+                status: 200,
+                headers: { "Content-Type": "application/x-protobuf" },
+                body: new Uint8Array(),
+            },
         });
     function config() {
         try {

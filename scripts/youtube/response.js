@@ -263,7 +263,10 @@ SOFTWARE.
             [454362329, "sponsoredVideo", "bytes"],
             [491441836, "sponsoredDisplay", "bytes"],
         ],
-        VideoLockup: [[33, "attachments", "Attachment", true]],
+        VideoLockup: [
+            [33, "attachments", "Attachment", true],
+            [34, "attachmentStateKey", "bytes"],
+        ],
         Attachment: [[9, "products", "bytes", true]],
         RenderInfo: [[183314536, "layoutRender", "LayoutRender"]],
         LayoutRender: [[1, "eml", "string"]],
@@ -304,7 +307,9 @@ SOFTWARE.
             [3, "related", "RelatedOverlay"],
             [42, "overlayCollections", "OverlayCollection", true],
         ],
-        OverlayCollection: [[401855120, "renderer", "OverlayCollectionRenderer"]],
+        OverlayCollection: [
+            [401855120, "renderer", "OverlayCollectionRenderer"],
+        ],
         OverlayCollectionRenderer: [[2, "overlays", "OverlayItem", true]],
         OverlayItem: [[401855122, "content", "OverlayContent"]],
         OverlayContent: [[1, "item", "RichItemContent"]],
@@ -408,6 +413,11 @@ SOFTWARE.
         ],
         ClientSettingEnum: [[1, "item", "uint"]],
         Watch: [[1, "contents", "WatchContent", true]],
+        ResolveUrl: [[2, "endpoint", "NavigationEndpoint"]],
+        NavigationEndpoint: [[48687757, "watch", "NavigationWatch"]],
+        NavigationWatch: [[68146959, "embedded", "EmbeddedPlayer"]],
+        EmbeddedPlayer: [[68202535, "response", "EmbeddedPlayerBody"]],
+        EmbeddedPlayerBody: [[1, "player", "Player"]],
         WatchContent: [
             [2, "player", "Player"],
             [3, "next", "Next"],
@@ -563,7 +573,8 @@ SOFTWARE.
                         (containsMarker(field.data) ||
                             field.no === 400157044 || // Product overlay.
                             field.no === 455507059 || // Paid-promotion overlay.
-                            (blockGames && field.no === 312131490 &&
+                            (blockGames &&
+                                field.no === 312131490 &&
                                 containsMarker(field.data, GAME_CARD))),
                 )
             )
@@ -580,8 +591,7 @@ SOFTWARE.
                 const keep = object[field].filter(
                     (item) => !isBlockedItem(item, blockGames),
                 );
-                changed =
-                    keep.length !== object[field].length || changed;
+                changed = keep.length !== object[field].length || changed;
                 if (object[field].length && !keep.length) emptied.add(object);
                 object[field] = keep;
             }
@@ -599,6 +609,12 @@ SOFTWARE.
                 );
                 changed = keep.length !== object.attachments.length || changed;
                 object.attachments = keep;
+                // The expansion-state key otherwise keeps an empty attachment
+                // area alive, including responses stripped by an older script.
+                if (!keep.length && object.attachmentStateKey !== undefined) {
+                    delete object.attachmentStateKey;
+                    changed = true;
+                }
             }
         });
         // Remove only wrappers emptied by filtering, not pre-existing placeholders
@@ -606,17 +622,33 @@ SOFTWARE.
         function emptyContainer(object) {
             if (!object || typeof object !== "object") return false;
             if (emptied.has(object)) return true;
-            return ["videoWithContextRenderer", "videoRendererContent",
-                "itemSectionRenderer", "renderer", "content", "item"]
-                .some((key) => emptyContainer(object[key]));
+            return [
+                "videoWithContextRenderer",
+                "videoRendererContent",
+                "itemSectionRenderer",
+                "renderer",
+                "content",
+                "item",
+            ].some((key) => emptyContainer(object[key]));
         }
         function prune(object) {
-            if (!object || typeof object !== "object" || ArrayBuffer.isView(object)) return;
+            if (
+                !object ||
+                typeof object !== "object" ||
+                ArrayBuffer.isView(object)
+            )
+                return;
             for (const child of Object.values(object)) prune(child);
-            for (const field of ["richItemContents", "contents",
-                "sectionListSupportedRenderers", "overlayCollections"]) {
+            for (const field of [
+                "richItemContents",
+                "contents",
+                "sectionListSupportedRenderers",
+                "overlayCollections",
+            ]) {
                 if (!Array.isArray(object[field])) continue;
-                const keep = object[field].filter((item) => !emptyContainer(item));
+                const keep = object[field].filter(
+                    (item) => !emptyContainer(item),
+                );
                 if (keep.length === object[field].length) continue;
                 changed = true;
                 if (!keep.length) emptied.add(object);
@@ -723,7 +755,16 @@ SOFTWARE.
         }
         return true;
     }
+    function enhanceNavigation(message, parameters) {
+        const player = message.endpoint?.watch?.embedded?.response?.player;
+        return player ? enhancePlayer(player, parameters) : false;
+    }
     const routes = [
+        {
+            path: "navigation/resolve_url",
+            type: codec("ResolveUrl"),
+            handle: enhanceNavigation,
+        },
         { path: "browse", type: Browse, handle: removeFeedAds },
         { path: "next", type: Next, handle: removeFeedAds },
         { path: "player", type: Player, handle: enhancePlayer },
@@ -796,14 +837,11 @@ SOFTWARE.
         i32 = Int32Array,
         fleb = new u8([
             0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4,
-            4, 5, 5, 5, 5, 0, /* unused */
-            0, 0, /* impossible */
-            0,
+            4, 5, 5, 5, 5, 0 /* unused */, 0, 0 /* impossible */, 0,
         ]),
         fdeb = new u8([
             0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9,
-            10, 10, 11, 11, 12, 12, 13, 13, /* unused */
-            0, 0,
+            10, 10, 11, 11, 12, 12, 13, 13 /* unused */, 0, 0,
         ]),
         clim = new u8([
             16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
@@ -2426,7 +2464,11 @@ SOFTWARE.
                           headerType(part.data) === ONESIE_INNERTUBE_RESPONSE)
                     : part.type === ENCRYPTED_RESPONSE_PART &&
                       rewriteNextPart &&
-                      ((part.data = rewriteEncryptedPart(part.data, crypto, parameters)),
+                      ((part.data = rewriteEncryptedPart(
+                          part.data,
+                          crypto,
+                          parameters,
+                      )),
                       (rewriteNextPart = !1)),
                     writer.writePart(part));
             }
