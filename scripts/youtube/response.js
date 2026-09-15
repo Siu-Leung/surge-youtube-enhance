@@ -534,6 +534,7 @@ SOFTWARE.
     ]);
     const AD_TRACKING = textEncoder.encode("/pagead/");
     const GAME_CARD = textEncoder.encode("mini_game_card.eml");
+    const LIVE_BADGE = textEncoder.encode("youtube_outline_experimental/live_24pt");
     function containsMarker(bytes, marker = AD_TRACKING) {
         outer: for (let i = 0; i <= bytes.length - marker.length; i++) {
             for (let j = 0; j < marker.length; j++)
@@ -556,7 +557,7 @@ SOFTWARE.
             stack.push(...Object.values(object));
         }
     }
-    function isBlockedItem(item, blockGames) {
+    function isBlockedItem(item, blockGames, blockLiveShelf) {
         let ad = false;
         visitObjects(item, (object) => {
             const layout = object.layoutRender?.eml?.split("|")[0];
@@ -573,6 +574,9 @@ SOFTWARE.
                         (containsMarker(field.data) ||
                             field.no === 400157044 || // Product overlay.
                             field.no === 455507059 || // Paid-promotion overlay.
+                            (blockLiveShelf &&
+                                field.no === 519005951 &&
+                                containsMarker(field.data, LIVE_BADGE)) ||
                             (blockGames &&
                                 field.no === 312131490 &&
                                 containsMarker(field.data, GAME_CARD))),
@@ -582,14 +586,14 @@ SOFTWARE.
         });
         return ad;
     }
-    function removeFeedAds(message, { blockGames = true } = {}) {
+    function removeFeedAds(message, { blockGames = true, blockLiveShelf = false } = {}) {
         let changed = false;
         const emptied = new WeakSet();
         visitObjects(message, (object) => {
             for (const field of ["richItemContents", "overlays"]) {
                 if (!Array.isArray(object[field])) continue;
                 const keep = object[field].filter(
-                    (item) => !isBlockedItem(item, blockGames),
+                    (item) => !isBlockedItem(item, blockGames, blockLiveShelf),
                 );
                 changed = keep.length !== object[field].length || changed;
                 if (object[field].length && !keep.length) emptied.add(object);
@@ -626,6 +630,9 @@ SOFTWARE.
                 "videoWithContextRenderer",
                 "videoRendererContent",
                 "itemSectionRenderer",
+                "shelfRenderer",
+                "richSectionContent",
+                "reelShelfRenderer",
                 "renderer",
                 "content",
                 "item",
