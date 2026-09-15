@@ -1,0 +1,13 @@
+{
+  "name": "surge-youtube-enhance",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Test suite for the YouTube Enhance Surge module (protobuf rewrite + UMP/onesie decryption).",
+  "scripts": {
+    "test": "node test/youtube/index.js",
+    "test:response": "node test/youtube/response.test.js",
+    "test:request": "node test/youtube/request.test.js",
+    "test:ump": "node test/youtube/ump.test.js"
+  },
+  "license": "Apache-2.0"
+}
